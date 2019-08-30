@@ -8,7 +8,6 @@ import org.bbop.apollo.report.OrganismPermissionSummary
 import org.bbop.apollo.report.OrganismSummary
 import org.bbop.apollo.report.SequenceSummary
 import org.codehaus.groovy.grails.web.json.JSONArray
-import org.codehaus.groovy.grails.web.json.parser.JSONParser
 
 @Transactional
 class ReportService {
@@ -22,7 +21,6 @@ class ReportService {
 
         Map<String, Integer> transcriptMap = new TreeMap<>()
         Transcript.executeQuery("select distinct g from Transcript g ").each {
-//            println "it: ${it}"
             String className = it.class.canonicalName.substring("org.bbop.apollo.".size())
             Integer count = transcriptMap.get(className) ?: 0
             transcriptMap.put(className, ++count)
@@ -47,14 +45,13 @@ class ReportService {
 
     def generateOrganismSummary(Organism organism) {
         OrganismSummary thisFeatureSummaryInstance = new OrganismSummary()
-        thisFeatureSummaryInstance.geneCount = (int) Gene.executeQuery("select count(distinct g) from Gene g join g.featureLocations fl join fl.sequence s join s.organism o where o = :organism", [organism: organism]).iterator().next()
+        thisFeatureSummaryInstance.geneCount = (int) Gene.executeQuery("select count(distinct g.name) from Gene g join g.featureLocations fl join fl.sequence s join s.organism o where o = :organism", [organism: organism]).iterator().next()
 
         thisFeatureSummaryInstance.annotators = User.executeQuery("select distinct own from Feature g join g.featureLocations fl join fl.sequence s join s.organism o join g.owners own where o = :organism", [organism: organism])
 
 
         Map<String, Integer> transcriptMap = new TreeMap<>()
         Transcript.executeQuery("select distinct g from Transcript g join g.featureLocations fl join fl.sequence s join s.organism o where o = :organism", [organism: organism]).each {
-//            println "it: ${it}"
             String className = it.class.canonicalName.substring("org.bbop.apollo.".size())
             Integer count = transcriptMap.get(className) ?: 0
             transcriptMap.put(className, ++count)
@@ -75,6 +72,48 @@ class ReportService {
 
     }
 
+    /*
+    generate organism summary specific to an annotator
+     */
+
+    OrganismSummary generateOrganismSummary(User owner, Organism organism) {
+        OrganismSummary thisFeatureSummaryInstance = new OrganismSummary()
+        thisFeatureSummaryInstance.geneCount = (int) Gene.executeQuery("select count(distinct g) from Gene g join g.featureLocations fl join fl.sequence s join s.organism organism join g.owners owner where owner = :owner and organism = :organism", [owner: owner,"organism":organism]).iterator().next()
+        thisFeatureSummaryInstance.transposableElementCount = (int) TransposableElement.executeQuery("select count(distinct g) from TransposableElement g join g.featureLocations fl join fl.sequence s join s.organism organism join g.owners owner where owner = :owner and organism = :organism", [owner: owner,"organism":organism]).iterator().next()
+        thisFeatureSummaryInstance.repeatRegionCount = (int) TransposableElement.executeQuery("select count(distinct g) from RepeatRegion g join g.featureLocations fl join fl.sequence s join s.organism organism join g.owners owner where owner = :owner and organism = :organism", [owner: owner,"organism":organism]).iterator().next()
+
+        thisFeatureSummaryInstance.exonCount = (int) TransposableElement.executeQuery("select count(distinct g) from Exon g join g.childFeatureRelationships child join child.parentFeature.owners owner join g.featureLocations fl join fl.sequence s join s.organism organism join g.owners owner where owner = :owner and organism = :organism ", [owner: owner,"organism":organism]).iterator().next()
+        thisFeatureSummaryInstance.transcriptCount = (int) Transcript.executeQuery("select count(distinct g) from Transcript g join g.featureLocations fl join fl.sequence s join s.organism organism join g.owners owner where owner = :owner and organism = :organism", [owner: owner,"organism":organism]).iterator().next()
+        thisFeatureSummaryInstance.annotators = User.executeQuery("select distinct own from Feature g join g.featureLocations fl join fl.sequence s join s.organism o join g.owners own where o = :organism", [organism: organism])
+        thisFeatureSummaryInstance.sequenceCount = Sequence.countByOrganism(organism)
+        thisFeatureSummaryInstance.organismId = organism.id
+
+        def ownedFeatures = Feature.createCriteria().list {
+
+            owners {
+                ilike('username', '%' + owner.username + '%')
+            }
+        }
+
+        List<Feature> list = []
+        ownedFeatures.each {
+            if (owner in it.owners) {
+                it.featureLocations.each { location ->
+                    if (location.sequence.organism.commonName == organism.commonName) {
+                        list.add(it)
+                    }
+                }
+            }
+        }
+
+        if (list.size()) {
+            list.sort{a,b-> b.lastUpdated<=>a.lastUpdated}
+            thisFeatureSummaryInstance.lastUpdated = list[0].lastUpdated
+        }
+
+        return thisFeatureSummaryInstance
+    }
+
 
     def generateSequenceSummary(Sequence sequence) {
         SequenceSummary sequenceSummary = new SequenceSummary()
@@ -88,7 +127,6 @@ class ReportService {
 
         Map<String, Integer> transcriptMap = new TreeMap<>()
         Transcript.executeQuery("select distinct g from Transcript g join g.featureLocations fl join fl.sequence s  where s = :sequence", [sequence: sequence]).each {
-//            println "it: ${it}"
             String className = it.class.canonicalName.substring("org.bbop.apollo.".size())
             Integer count = transcriptMap.get(className) ?: 0
             transcriptMap.put(className, ++count)
@@ -104,7 +142,7 @@ class ReportService {
         return sequenceSummary
     }
 
-    def copyProperties(source, target) {
+    def copyProperties(OrganismSummary source, OrganismPermissionSummary target) {
         source.properties.each { key, value ->
             if (target.hasProperty(key) && !(key in ['class', 'metaClass'])) {
                 try {
@@ -116,53 +154,59 @@ class ReportService {
         }
     }
 
-    AnnotatorSummary generateAnnotatorSummary(User owner, boolean includePermissions = false) {
+    AnnotatorSummary generateAnnotatorSummary(User owner) {
         AnnotatorSummary annotatorSummary = new AnnotatorSummary()
-        annotatorSummary.annotator = owner
-        annotatorSummary.geneCount = (int) Gene.executeQuery("select count(distinct g) from Gene g join g.owners owner where owner = :owner ", [owner: owner]).iterator().next()
-        annotatorSummary.transposableElementCount = (int) TransposableElement.executeQuery("select count(distinct g) from TransposableElement g join g.owners owner where owner = :owner", [owner: owner]).iterator().next()
-        annotatorSummary.repeatRegionCount = (int) TransposableElement.executeQuery("select count(distinct g) from RepeatRegion g join g.owners owner where owner = :owner", [owner: owner]).iterator().next()
-        annotatorSummary.exonCount = (int) TransposableElement.executeQuery("select count(distinct g) from Exon g join g.childFeatureRelationships child join child.parentFeature.owners owner where owner = :owner", [owner: owner]).iterator().next()
+        
+        // get features created by the annotator
+        def geneCount = Gene.executeQuery("select count(distinct g) from Gene g join g.owners owner where owner = :owner", [owner: owner])[0]
+        def transposableElementCount = TransposableElement.executeQuery("select count(distinct g) from TransposableElement g join g.owners owner where owner = :owner", [owner: owner])[0]
+        def repeatRegionCount = TransposableElement.executeQuery("select count(distinct g) from RepeatRegion g join g.owners owner where owner = :owner", [owner: owner])[0]
+        def exonsCount = TransposableElement.executeQuery("select count(distinct g) from Exon g join g.childFeatureRelationships child join child.parentFeature.owners owner where owner = :owner", [owner: owner])[0]
+        def transcriptCount = Transcript.executeQuery("select count(distinct g) from Transcript g join g.owners owner where owner = :owner ", [owner: owner])[0]
 
+        annotatorSummary.annotator = owner
+        annotatorSummary.geneCount = geneCount
+        annotatorSummary.transposableElementCount = transposableElementCount
+        annotatorSummary.repeatRegionCount = repeatRegionCount
+        annotatorSummary.exonCount = exonsCount
+        annotatorSummary.transcriptCount = transcriptCount
 
         Map<String, Integer> transcriptMap = new TreeMap<>()
+        // TODO: this is potentially very slow
         Transcript.executeQuery("select distinct g from Transcript g join g.owners owner where owner = :owner ", [owner: owner]).each {
-//            println "it: ${it}"
             String className = it.class.canonicalName.substring("org.bbop.apollo.".size())
             Integer count = transcriptMap.get(className) ?: 0
             transcriptMap.put(className, ++count)
         }
         annotatorSummary.transcriptTypeCount = transcriptMap
-        if (transcriptMap) {
-            annotatorSummary.transcriptCount = transcriptMap.values()?.sum()
-        } else {
-            annotatorSummary.transcriptCount = 0
-        }
+//        if (transcriptMap) {
+//            annotatorSummary.transcriptCount = transcriptMap.values()?.sum()
+//        } else {
+//            annotatorSummary.transcriptCount = 0
+//        }
 
-        // TODO: add groups as well
-        if (includePermissions && !permissionService.isUserAdmin(owner)) {
+
+        if (!permissionService.isUserGlobalAdmin(owner)) {
 
             List<OrganismPermissionSummary> userOrganismPermissionList = new ArrayList<>()
-            if (permissionService.isUserAdmin(owner)) {
+            if (permissionService.isUserGlobalAdmin(owner)) {
                 Organism.listOrderByCommonName().each {
                     OrganismPermissionSummary organismPermissionSummary = new OrganismPermissionSummary()
                     UserOrganismPermission userOrganismPermission = new UserOrganismPermission()
                     userOrganismPermission.permissions = [PermissionEnum.ADMINISTRATE, PermissionEnum.EXPORT, PermissionEnum.READ, PermissionEnum.WRITE]
                     userOrganismPermission.organism = it
                     organismPermissionSummary.userOrganismPermission = userOrganismPermission
-                    copyProperties(generateOrganismSummary(it), organismPermissionSummary)
+                    copyProperties(generateOrganismSummary(owner, it), organismPermissionSummary)
                     userOrganismPermissionList.add(organismPermissionSummary)
                 }
             } else {
                 UserOrganismPermission.findAllByUser(owner).each {
                     OrganismPermissionSummary organismPermissionSummary = new OrganismPermissionSummary()
                     organismPermissionSummary.userOrganismPermission = it
-                    copyProperties(generateOrganismSummary(it.organism), organismPermissionSummary)
-//                organismPermissionSummary.organismId = it.organismId
+                    copyProperties(generateOrganismSummary(owner, it.organism), organismPermissionSummary)
 
                     userOrganismPermissionList.add(organismPermissionSummary)
                 }
-//            annotatorSummary.userOrganismPermissionList =
             }
 
             owner.userGroups.each { group ->
@@ -174,7 +218,7 @@ class ReportService {
                         userOrganismPermission.permissions = groupPermission.permissions
                         userOrganismPermission.organism = groupPermission.organism
                         organismPermissionSummary.userOrganismPermission = userOrganismPermission
-                        copyProperties(generateOrganismSummary(groupPermission.organism), organismPermissionSummary)
+                        copyProperties(generateOrganismSummary(owner, groupPermission.organism), organismPermissionSummary)
                         userOrganismPermissionList.add(organismPermissionSummary)
                     }
                 }
@@ -184,10 +228,9 @@ class ReportService {
             annotatorSummary.userOrganismPermissionList = mergePermissions(userOrganismPermissionList)
         }
 
-
-
         return annotatorSummary
     }
+
 
     List<OrganismPermissionSummary> mergePermissions(ArrayList<OrganismPermissionSummary> organismPermissionSummaries) {
         Map<String,OrganismPermissionSummary> map = new TreeMap<>()

@@ -3,6 +3,7 @@ package org.bbop.apollo
 
 import grails.converters.JSON
 import org.bbop.apollo.gwt.shared.FeatureStringEnum
+import org.bbop.apollo.gwt.shared.GlobalPermissionEnum
 
 import static org.springframework.http.HttpStatus.*
 import grails.transaction.Transactional
@@ -31,8 +32,6 @@ class AvailableStatusController {
     }
 
     def index(Integer max) {
-//        params.max = Math.min(max ?: 10, 100)
-//        respond AvailableStatus.list(params), model:[availableStatusInstanceCount: AvailableStatus.count()]
         params.max = Math.min(max ?: 10, 100)
         def availableStatuss = AvailableStatus.list(params)
         def organismFilterMap = [:]
@@ -141,6 +140,12 @@ class AvailableStatusController {
             return
         }
 
+        def filters = AvailableStatusOrganismFilter.findAllByAvailableStatus(availableStatusInstance)
+        AvailableStatusOrganismFilter.deleteAll(filters)
+        availableStatusInstance.featureTypes.each {
+            availableStatusInstance.removeFromFeatureTypes(it)
+        }
+
         availableStatusInstance.delete flush:true
 
         request.withFormat {
@@ -173,7 +178,7 @@ class AvailableStatusController {
     def createStatus() {
         JSONObject statusJson = permissionService.handleInput(request, params)
         try {
-            if (permissionService.isUserAdmin(permissionService.getCurrentUser(statusJson))) {
+            if (permissionService.isUserGlobalAdmin(permissionService.getCurrentUser(statusJson))) {
                 if (!statusJson.value) {
                     throw new Exception('empty fields detected')
                 }
@@ -211,7 +216,7 @@ class AvailableStatusController {
         try {
             JSONObject statusJson = permissionService.handleInput(request, params)
             log.debug "Updating status ${statusJson}"
-            if (permissionService.isUserAdmin(permissionService.getCurrentUser(statusJson))) {
+            if (permissionService.isUserGlobalAdmin(permissionService.getCurrentUser(statusJson))) {
                 if (!statusJson.new_value) {
                     throw new Exception('empty fields detected')
                 }
@@ -256,7 +261,7 @@ class AvailableStatusController {
         try {
             JSONObject statusJson = permissionService.handleInput(request, params)
             log.debug "Deleting status ${statusJson}"
-            if (permissionService.isUserAdmin(permissionService.getCurrentUser(statusJson))) {
+            if (permissionService.isUserGlobalAdmin(permissionService.getCurrentUser(statusJson))) {
 
                 AvailableStatus status = AvailableStatus.findById(statusJson.id) ?: AvailableStatus.findByValue(statusJson.value)
 
@@ -296,7 +301,7 @@ class AvailableStatusController {
         try {
             JSONObject statusJson = permissionService.handleInput(request, params)
             log.debug "Showing status ${statusJson}"
-            if (!permissionService.hasGlobalPermissions(statusJson, PermissionEnum.ADMINISTRATE)) {
+            if (!permissionService.hasGlobalPermissions(statusJson, GlobalPermissionEnum.ADMIN)) {
                 render status: UNAUTHORIZED
                 return
             }

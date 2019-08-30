@@ -2,9 +2,7 @@ package org.bbop.apollo.gwt.client;
 
 import com.google.gwt.core.client.EntryPoint;
 import com.google.gwt.core.client.GWT;
-import com.google.gwt.core.client.JavaScriptObject;
 import com.google.gwt.core.client.Scheduler;
-import com.google.gwt.dom.client.Element;
 import com.google.gwt.dom.client.Style;
 import com.google.gwt.event.shared.EventBus;
 import com.google.gwt.event.shared.SimpleEventBus;
@@ -14,7 +12,6 @@ import com.google.gwt.http.client.Response;
 import com.google.gwt.i18n.client.Dictionary;
 import com.google.gwt.storage.client.Storage;
 import com.google.gwt.user.client.Window;
-import com.google.gwt.user.client.rpc.core.java.util.HashMap_CustomFieldSerializer;
 import com.google.gwt.user.client.ui.RootLayoutPanel;
 import org.bbop.apollo.gwt.client.rest.RestService;
 import org.bbop.apollo.gwt.shared.ClientTokenGenerator;
@@ -94,6 +91,11 @@ public class Annotator implements EntryPoint {
                             if(statusCode==200 && response.getText().equals("{}")){
                                 GWT.log("Still connected");
                             }
+                            else
+                            if(statusCode==200 && response.getText().contains("/apollo/auth/signIn")){
+                                GWT.log("Back up and trying to login");
+                                Window.Location.reload();
+                            }
                             else{
                                 if(!confirmOpen){
                                     confirmOpen = true ;
@@ -131,6 +133,11 @@ public class Annotator implements EntryPoint {
         $wnd.setPreference = $entry(@org.bbop.apollo.gwt.client.Annotator::setPreference(Ljava/lang/String;Ljava/lang/Object;));
         $wnd.getPreference = $entry(@org.bbop.apollo.gwt.client.Annotator::getPreference(Ljava/lang/String;));
         $wnd.getClientToken = $entry(@org.bbop.apollo.gwt.client.Annotator::getClientToken());
+        $wnd.getEmbeddedVersion = $entry(
+            function apolloEmbeddedVersion() {
+                return 'ApolloGwt-2.0';
+            }
+        );
     }-*/;
 
     public static void setPreference(String key, Object value) {

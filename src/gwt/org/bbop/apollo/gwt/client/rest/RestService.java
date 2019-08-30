@@ -27,7 +27,7 @@ public class RestService {
         sendRequest(requestCallback, url, data, RequestBuilder.POST);
     }
 
-    public static void sendRequest(RequestCallback requestCallback, String url, String data, RequestBuilder.Method method) {
+    public static String fixUrl(String url) {
         String rootUrl = Annotator.getRootUrl();
         if (!url.startsWith(rootUrl)) {
             url = rootUrl + url;
@@ -39,11 +39,29 @@ public class RestService {
             url += "=";
             url += Annotator.getClientToken();
         }
+        return url;
+    }
+
+    public static void sendRequest(RequestCallback requestCallback, String url, String data, RequestBuilder.Method method) {
+        url = fixUrl(url);
+        RequestBuilder builder = generateBuilder(requestCallback,method, url, data);
+    }
+
+    public static void sendGetRequest(RequestCallback requestCallback, String url) {
+        sendRequest(requestCallback, url, null, RequestBuilder.GET);
+    }
+
+    public static RequestBuilder generateBuilder(RequestCallback requestCallback, RequestBuilder.Method method, String url) {
+        return generateBuilder(requestCallback,method,url,null);
+    }
+
+    public static RequestBuilder generateBuilder(RequestCallback requestCallback, RequestBuilder.Method method, String url, String data) {
         RequestBuilder builder = new RequestBuilder(method, URL.encode(url));
         if (data != null) {
             builder.setRequestData(data);
         }
         builder.setHeader("Content-type", "application/x-www-form-urlencoded");
+        builder.setHeader("Accept", "application/json");
         try {
             if (requestCallback != null) {
                 builder.setCallback(requestCallback);
@@ -52,10 +70,6 @@ public class RestService {
         } catch (RequestException e) {
             Bootbox.alert(e.getMessage());
         }
-
-    }
-
-    public static void sendGetRequest(RequestCallback requestCallback, String url) {
-        sendRequest(requestCallback, url, null, RequestBuilder.GET);
+        return builder;
     }
 }

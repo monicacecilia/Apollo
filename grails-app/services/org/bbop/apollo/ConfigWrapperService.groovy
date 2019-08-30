@@ -17,6 +17,10 @@ class ConfigWrapperService {
         return grailsApplication.config.apollo.use_cds_for_new_transcripts
     }
 
+    String getTranscriptOverlapper() {
+        return grailsApplication.config.apollo.transcript_overlapper
+    }
+
     TranslationTable getTranslationTable() {
         return SequenceTranslationHandler.getTranslationTableForGeneticCode(getTranslationCode())
     }
@@ -46,11 +50,19 @@ class ConfigWrapperService {
     }
 
     List<String> getSpliceDonorSites(){
-        return grailsApplication.config.apollo.splice_donor_sites
+        List<String> sites = new ArrayList<String>()
+        grailsApplication.config.apollo.splice_donor_sites.each {
+            sites.add(it.toLowerCase())
+        }
+        return sites
     }
 
     List<String> getSpliceAcceptorSites(){
-        return grailsApplication.config.apollo.splice_acceptor_sites
+        List<String> sites = new ArrayList<String>()
+        grailsApplication.config.apollo.splice_acceptor_sites.each {
+            sites.add(it.toLowerCase())
+        }
+        return sites
     }
 
     int getDefaultMinimumIntronSize() {
@@ -67,6 +79,10 @@ class ConfigWrapperService {
 
     def exportSubFeatureAttrs() {
         return grailsApplication.config.apollo.export_subfeature_attrs
+    }
+
+    String getCommonDataDirectory() {
+        return grailsApplication.config.apollo.common_data_directory
     }
 
     def hasChadoDataSource() {
@@ -97,6 +113,10 @@ class ConfigWrapperService {
         grailsApplication.config.apollo.authentications
     }
 
+    def storeOrigId() {
+        grailsApplication.config.apollo.store_orig_id
+    }
+
     def getPingUrl() {
         Boolean phoneHome =  grailsApplication.config.apollo.phone.phoneHome
         if(phoneHome){
@@ -122,4 +142,9 @@ class ConfigWrapperService {
     boolean getOnlyOwnersDelete(){
         return grailsApplication.config.apollo.only_owners_delete
     }
+
+    boolean getNativeTrackSelectorDefaultOn(){
+        return grailsApplication.config.apollo.native_track_selector_default_on
+    }
+
 }

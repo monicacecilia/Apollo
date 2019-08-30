@@ -1,21 +1,201 @@
 
+
+## 2.4.1
+
+Features
+
+- Organism and Group tab should searchable.  [2081](https://github.com/GMOD/Apollo/pull/2081) 
+
+Bug
+
+- Bump JBrowse version to 1.16.6 to fix drag error on Chrome mac. <https://github.com/GMOD/jbrowse/issues/1397>
+
+
+
+## 2.4.0
+
+ Features
+
+- Added GO Annotations. [2172](https://github.com/GMOD/Apollo/pull/2172), [2162](https://github.com/GMOD/Apollo/pull/2162) [1134](https://github.com/GMOD/Apollo/issues/1134)
+- Allow upload of genomic data to create new organisms. [2023](https://github.com/GMOD/Apollo/pull/2023)
+- Allow upload of track data to create new removable tracks. [2024](https://github.com/GMOD/Apollo/pull/2024) [2084](https://github.com/GMOD/Apollo/pull/2084)
+- Allow indication of variant effects [1971](https://github.com/GMOD/Apollo/issues/1971)
+- Added ability to provide suggestable names [1991](https://github.com/GMOD/Apollo/issues/1991)
+- Provide community level private evidence tracks [17](https://github.com/GMOD/Apollo/pull/17)
+- Automatically kill or disable server if a common directory is not defined [2079](https://github.com/GMOD/Apollo/pull/2079)
+- Added support for Shine Dalgarno sequence [2149](https://github.com/GMOD/Apollo/issues/2149) [1955](https://github.com/GMOD/Apollo/issues/1955)
+- Allow for the export of a gene with uncertain internal structure - allow no CDS for an gene [1989](https://github.com/GMOD/Apollo/issues/1989)
+- Added shortcut for sequence and GFF3 popups [2116](https://github.com/GMOD/Apollo/issues/2116)
+- Added the ability to do group add /delete in bulk and group update in bulk [2105](https://github.com/GMOD/Apollo/issues/2105)
+- Added basic support for community level private evidence track [17](https://github.com/GMOD/Apollo/issues/17)
+
+
+Infrastructure Changes
+
+- Integrated Docker into the Apollo repository directly so that `latest` is always the current snapshot and `stable` is always the latest release. [2184](https://github.com/GMOD/Apollo/issues/2184)
+- Upgrade to [JBrowse 1.16.5](https://github.com/GMOD/jbrowse/releases/tag/1.16.5-release)
+- Added script to delete features by name and unique name [2138](https://github.com/GMOD/Apollo/issues/2138)
+ 
+ Bug Fixes
+ 
+- Fix issue with rendering neat features [2063](https://github.com/GMOD/Apollo/pull/2063) 
+- Fix issue with creating annotations for reads with indels in them [2085](https://github.com/GMOD/Apollo/pull/2085) 
+- Fixes error when changing annotation type when status is set [2167](https://github.com/GMOD/Apollo/issues/2167)
+- Fixes for variant search in annotator panel [2147](https://github.com/GMOD/Apollo/issues/2147)
+- Fixed bug where `txtz` is not supported when adding a gnome feature [2136](https://github.com/GMOD/Apollo/issues/2136)
+- Fixed bug where sequence panel is VERY narrow [2118](https://github.com/GMOD/Apollo/issues/2118)
+- Fixed bug where setting the 5' and 3' based on reads does not work [2110](https://github.com/GMOD/Apollo/issues/2110)
+- Numerous UI issue fixes [2109](https://github.com/GMOD/Apollo/issues/2109)[2113](https://github.com/GMOD/Apollo/issues/2113)
+- Fixed rendering of certain exons [2063](https://github.com/GMOD/Apollo/issues/2063)
+- Fixed bug where indels in long RNAseq reads interpreted as introns when used to make annotations [2085](https://github.com/GMOD/Apollo/issues/2085)
+- Fixed bug where unable to drag features when the new inferHTMLSubfeatures is fals [2099](https://github.com/GMOD/Apollo/issues/2099)
+- Unable to create variants in some cases [2103](https://github.com/GMOD/Apollo/issues/2103)
+
+ 
+
+## 2.3.1
+
+Features
+
+
+- Allowed duplication of organism from the Organism Panel [1968](https://github.com/GMOD/Apollo/pull/1968)
+- Allows making an organism obsolete [1967](https://github.com/GMOD/Apollo/pull/1967)
+- Create a filter and flag for inactive users [1937](https://github.com/GMOD/Apollo/pull/1937)
+- Allowed deletion of feature from the Sequence and Annotator Panels [2040](https://github.com/GMOD/Apollo/pull/2040)
+- Allow export of orig_id as an optional attribute [2002](https://github.com/GMOD/Apollo/pull/2002)
+
+Bug Fixes
+
+- Fixed issue when dragging features to resize was not providing an indicator box [1988](https://github.com/GMOD/Apollo/pull/1988)
+- Fixed issue when sequence alterations were not rendering the full height of the sequence track [2049](https://github.com/GMOD/Apollo/pull/2049)
+- Making organisms obsolete should remove associated permissions [2043](https://github.com/GMOD/Apollo/pull/2043)
+- User-created features taken from split reads should create features with introns [2036](https://github.com/GMOD/Apollo/pull/2036)
+- Should indicate split reads properly in evidence [2034](https://github.com/GMOD/Apollo/pull/2034)[2054](https://github.com/GMOD/Apollo/pull/2054)
+- Temporary files not removed during export of GFF3 or other file types [1966](https://github.com/GMOD/Apollo/pull/1966)
+- Fixed issue where you could not alter an isoform after deleting a gene name [1961](https://github.com/GMOD/Apollo/pull/1961)
+- Fixed some minor issues associated with sequence alterations [1497](https://github.com/GMOD/Apollo/pull/1497)
+- Multiple owners tagged on GFF3 export [29](https://github.com/GMOD/Apollo/pull/29)
+- Setting gene description puts UcA into a bad state [2056](https://github.com/GMOD/Apollo/issues/2056)
+- Fixes plugin inclusion error by reverting prior fix [2055](https://github.com/GMOD/Apollo/issues/2055)
+
+
+
+## 2.3.0
+
+
+Features
+
+- Moved to JBrowse 1.16.2 by default [1988](https://github.com/GMOD/Apollo/pull/1988), which also fixed track styling issues [#1942](https://github.com/GMOD/Apollo/pull/1942)
+- Moved to Neat Features as the default  [2021](https://github.com/GMOD/Apollo/pull/2021)
+- Improved terminator annotation [1997](https://github.com/GMOD/Apollo/pull/1997)
+
+
+Bug Fixes
+
+- JBrowse bin directory not properly being installed [2017](https://github.com/GMOD/Apollo/pull/2017)
+- Workaround for declaring plugins in trackList.json via a JBrowse bug [2014](https://github.com/GMOD/Apollo/pull/2014)
+- Fixed problems with creating variant annotations with soft masking [2009](https://github.com/GMOD/Apollo/pull/2009)
+- Fixed bugs in reporting code [2008](https://github.com/GMOD/Apollo/pull/2008)
+- Fixed several build bugs #1996, #1994, #1993
+- Fixed bug where deletions, insertions, and substitutions were not editable in the side-bpanel [#1923](https://github.com/GMOD/Apollo/pull/2008)
+
+
+
+## 2.2.0
+
+Features
+
+- Move to JBrowse 1.15 and webpack (smaller file size) [1928](https://github.com/GMOD/Apollo/pull/1928),[1986](https://github.com/GMOD/Apollo/pull/1986)
+- Add ability to annotate terminators [1954](https://github.com/GMOD/Apollo/issues/1954)
+- Added a script for removing all features from a sequence [1935](https://github.com/GMOD/Apollo/pull/1935)
+- Allowed removal of ALL user permissions (instead of deleting) to inactivate [777](https://github.com/GMOD/Apollo/issues/777)
+- Clarified edge-detection [9](https://github.com/GMOD/Apollo/issues/9)
+
+
+Bug Fixes
+
+- Fixed bug where showing annotations by users was lost [1952](https://github.com/GMOD/Apollo/issues/1952)
+- Fixed by where lowercase reference sequence does not translate correctly in 'Get Sequence' output  [1944](https://github.com/GMOD/Apollo/issues/1944)
+- Fixed problem where removing an available status type caused an error [1909](https://github.com/GMOD/Apollo/issues/1909)
+- Fixed bug where a logged-in link location was ignored when passed in by copying the logged in URL [1982](https://github.com/GMOD/Apollo/issues/1982)
+- Fixed bug where insertion and deletion details did not come up in the Annotator Panel when clicked [1984](https://github.com/GMOD/Apollo/issues/1984)
+
+
+
+## 2.1.0
+
+Features
+
+- Added ability to annotate a variant from VCF evidence tracks [1892](https://github.com/GMOD/Apollo/pull/1892)
+- Allow forced assignment of transcript to a gene [#1851](https://github.com/GMOD/Apollo/pull/1851)
+- Added proper Instructor and Organism Admin permission level [#1178](https://github.com/GMOD/Apollo/issues/1178)
+- Indicate start / stop codons with color [#1852](https://github.com/GMOD/Apollo/pull/1852)
+- Set the default biotype on track [#1861](https://github.com/GMOD/Apollo/issues/1861)
+- Focus annotator panel on the current transcript [#1846](https://github.com/GMOD/Apollo/issues/1846)
+- Allow fetching variant data from evidence tracks via web service [#1867](https://github.com/GMOD/Apollo/pull/1867)
+- Recognized dot notation from JBrowse / Apollo [#1839](https://github.com/GMOD/Apollo/issues/1839)
+- Allow setting default native track to true [#1848](https://github.com/GMOD/Apollo/pull/1848)
+- Provide [sample data](https://github.com/GMOD/Apollo/blob/master/docs/Apollo2Build.md#adding-sample-data) (and links in doc)[#1817](https://github.com/GMOD/Apollo/pull/1817) 
+
+
+Bug Fixes
+
+- Fixed descriptor leak when loading bulk loading GFF3 [#1187](https://github.com/GMOD/Apollo/pull/1887)
+- Fixed adding ability to create sequence alterations of uneven length [#1883](https://github.com/GMOD/Apollo/issues/1883)
+- Fixed problem where canonical splice-sites were not recognized if sequence was being shown in lower-case [#1879](https://github.com/GMOD/Apollo/issues/1879)
+- Prevents setting bad translation starts and ends [#1838](https://github.com/GMOD/Apollo/issues/1838)
+- Improved performance of cache deletion code [#1824](https://github.com/GMOD/Apollo/pull/1824)
+- Allow more special characters in the password [#1859](https://github.com/GMOD/Apollo/issues/1859)
+- Fixed bug with 'Update Membership' and 'Update Group Admin' call in web services [#1891](https://github.com/GMOD/Apollo/issues/1891)
+- Fixed bug with 'Update Organism Permission' call in web services [#1885](https://github.com/GMOD/Apollo/issues/1885)
+- In some cases when the name store is not properly configured, the location is not remembered [#1895](https://github.com/GMOD/Apollo/issues/1895)
+
+## 2.0.8
+
+Features
+
+- Added the ability to annotate from high performance [Alignments2](http://gmod.org/wiki/JBrowse_Configuration_Guide#Alignments2) BAM reads [#1789](https://github.com/GMOD/Apollo/pull/1789)
+- Added support for indexed FASTA to be used as reference sequence. [#1791](https://github.com/GMOD/Apollo/pull/1791)
+- Added sequence API [#1799](https://github.com/GMOD/Apollo/pull/1799)
+- Added ability to remove gridlines from the view menu in both light and dark themes [#1547](https://github.com/GMOD/Apollo/pull/1547)
+
+Bug Fixes 
+
+- Fixed bug when flipping strand fails to flip the strand of the owning gene [#1769](https://github.com/GMOD/Apollo/issues/1769)
+- Fixes to track services to allow remote jbrowse tracks and jsonz [#1767](https://github.com/GMOD/Apollo/issues/1767)
+- Fixes to track services to return 404 when bad URL is given [#1768](https://github.com/GMOD/Apollo/issues/1768)
+- Fixed CORS issues [#1760](https://github.com/GMOD/Apollo/issues/1760)
+- Fixed bug where gene positions are sometimes wrong when a longer isoform is deleted from a gene [#1770](https://github.com/GMOD/Apollo/issues/1770)
+- Fixed permissions for REMOTE_USER when using web services [#1759](https://github.com/GMOD/Apollo/issues/1759)
+- Fixes build issues [#1756](https://github.com/GMOD/Apollo/issues/1756) [#1752](https://github.com/GMOD/Apollo/issues/1752) [#1773](https://github.com/GMOD/Apollo/issues/1773)
+- Fixes error in SQL query for listing alterations [#1754](https://github.com/GMOD/Apollo/issues/1754)
+- Minimum node version is version 6
+- Fix UserPanel for a large number of users [#1800](https://github.com/GMOD/Apollo/pull/1800)
+- Fixes recalculated gene positions for some delete exon operations [#1808](https://github.com/GMOD/Apollo/issues/1808)
+- Fix big when updating organism via web-service [#1804](https://github.com/GMOD/Apollo/issues/1804)
+
+
 ## 2.0.7
 
 Features
 
+- Add the ability to upload organism sequence data and track data to a remote Apollo instance via Apollo Web Services [#1670](https://github.com/GMOD/Apollo/pull/1670).
 - Allow setting of alternate translation table per organism using the _Details_ panel under the _Organism_ tab in the Annotator panel. [#95](https://github.com/GMOD/Apollo/issues/95)
 - Draggable BAM tracks now support coloring by strand. Reads aligned to forward strand are colored blue, while those in the reverse strand are red.  [#412](https://github.com/GMOD/Apollo/issues/412)
 - The list of _Tracks_ in the Annotator panel now allows for the separation of data types into categories. [#536](https://github.com/GMOD/Apollo/issues/536)
+- Tracks in a category can be added or removed all at once. [#1733](https://github.com/GMOD/Apollo/pull/1733)
 - When applicable, warnings now alert users of insufficient permissions to perform certain functions. [#553](https://github.com/GMOD/Apollo/issues/553)
 - Restrictions are now in place to prevent users from modifying or deleting annotations that they did not create. [#1260](https://github.com/GMOD/Apollo/issues/1260)
 - Updated settings for the ability to filter by organism when applying metadata. For instance, admin may now apply canned comments, keys and values, only to a subset of organisms in their server. As well, statuses can be retrieved per type of genomic element, per organism, etc. [#1676](https://github.com/GMOD/Apollo/pull/1676)
 - Admins can now build public URLs to hyperlink directly to a specific genomic element. [#1482](https://github.com/GMOD/Apollo/pull/1482)
 - It is now possible to set _Statuses_ as well as adding or editing _Canned elements_ using our Web Service (REST) API. [#1538](https://github.com/GMOD/Apollo/pull/1538)
 - In the absence of ```Name``` attribute in GFF3 file, Apollo uses ```ID``` attribute to name the annotation in JSON. [#1639](https://github.com/GMOD/Apollo/pull/1639)
-- A number of other improvements to performance have been made, such as fetching preferences from session. [#1604](https://github.com/GMOD/Apollo/pull/1604)
+- A number of other improvements to performance have been made, such as fetching preferences from session. [#1604](https://github.com/GMOD/Apollo/pull/1604) [#1725](https://github.com/GMOD/Apollo/pull/1725)
+- Added date created field to changes report. [#1728](https://github.com/GMOD/Apollo/pull/1728)
+- Removal of bower in favor of npm to install JBrowse. [#1691](https://github.com/GMOD/Apollo/pull/1691)
 - Added documentation for a Web Service wrapper for Python, PHP, etc. See [Web Services API documentation](http://genomearchitect.readthedocs.io/en/latest/Web_services.html).
 
-Bugfixes
+Bug Fixes
 
 - Fixed bug in which ```add_transcripts_from_gff3_to_annotations.pl``` replaced valid mRNA name with gene name. [#1475](https://github.com/GMOD/Apollo/issues/1475)
 - Fixed bug in which ```REMOTE_USER``` was not cached everywhere and was being ignored on ping request. [#1492](https://github.com/GMOD/Apollo/pull/1492)
@@ -30,6 +210,8 @@ Bugfixes
 - Fixed bug that delayed propagation of updates when boundaries for an annotation's parent element were changed. [#1631](https://github.com/GMOD/Apollo/issues/1631) 
 - Restored _'Pin to top'_ and _'Delete track'_ functionality for tracks with ```HTMLFeatures```. [#1632](https://github.com/GMOD/Apollo/issues/1632)
 - Fixed cascade bug when changing annotation type for an annotation that has a read-through stop codon. [#1717](https://github.com/GMOD/Apollo/pull/1717)
+- Apollo client being initialized twice in some instances. [#1742](https://github.com/GMOD/Apollo/issues/1742)
+
 
 
 ## 2.0.6
@@ -40,7 +222,7 @@ Features
 + Add new 'default_group' param for remote_user auth #1445
 + Added icon to toggle view of native JBrowse tracks that is always visible #1452
 
-Bugfixes
+Bug Fixes
 
 + Failure to load tracks when switching organisms with identical Sequence IDs #1391
 + Unable to add organism from script without a pre-existing organism #1388
@@ -87,7 +269,7 @@ Features
 + Bumped default JBrowse version 
 
 
-Bugfixes
+Bug Fixes
 
 + Web-service method 'getUserPermissionsForUser' #1230
 + UI glitch with more than ten groups #1242
@@ -132,7 +314,7 @@ Features
 + Added [documentation for using Apollo with Docker](https://github.com/GMOD/Apollo/blob/master/docs/Setup.md#configure-for-docker) (#1016)
 
 
-Bugfixes
+Bug Fixes
 
 + Fixed multiple errors in the add_transcript_from_gff3_to_annotations.pl loading script (#1146)
 + Expired sessions or server disconnection triggers reconnection instead of a silent failure (#493)
@@ -170,7 +352,7 @@ Features
 + Added ability to allow username to be a non-email based name (#939).
 + Sync with JBrowse 1.12.2-apollo for stability (#971).
 
-Bugfixes
+Bug Fixes
 
 + Fixed a bug were set translation start, in an intron, produces an uncaught out of bounds exception (#532).
 + Remove alternate hover CSS on tables in Annotator Panel for better visibility of entries (#632).
@@ -213,7 +395,7 @@ Features
 + Improved the speed of FASTA export via optimization (#854).
 + Updated history window to indicate current position (#797).
 
-Bugfixes
+Bug Fixes
 
 + Fixed a bug where sequence modifications weren't being included in the GFF3 export (#748).
 + Provide alternate translation table support on the client (#759).
@@ -257,7 +439,7 @@ Features
 + Added ability to reference the organism by name in the jbrowse URL for easier to remember URL formats (#653).
 + Added a get_fasta.groovy script to fetch FASTA for annotations via web services.
 
-Bugfixes
+Bug Fixes
 
 + Fixed the permissions to only allow the global admin role to create and delete organisms (#542).
 + Fixed an issue with JBrowse compatibility for certain refSeqs.json files not containing length.
@@ -273,14 +455,14 @@ Bugfixes
 
 ## 2.0.0
 
-Bugfixes
+Bug Fixes
 
 + Organism panel not showing all organisms (#540).
 + Admins for specific organisms have issues with giving other users permissions (#542).
 
 ## 2.0.0-RC6
 
-Bugfixes
+Bug Fixes
 
 + Fixed multiple bugs having to do with sequence alterations (#534, #531, #458, #456).
 + Fixed logout for multiple windows on the same browser (#480).
@@ -293,7 +475,7 @@ Features
 
 + Optimized transcript merging (#529,#515).
 
-Bugfixes
+Bug Fixes
 
 + History operations fail when setting acceptor / donor (#530). 
 
@@ -305,7 +487,7 @@ Features
 + Add an interim export panel (#78).
 + Added google analytics integration (#146).
 
-Bugfixes
+Bug Fixes
 
 + User's last location isn't preserved on page on page refresh (#522).
 + Added security to report pages (#513).
@@ -330,7 +512,7 @@ Features
 + Add compression to gzip / fasta (#252).
 + Add stress testing frameworks (#137).
 
-Bugfixes
+Bug Fixes
 
 + Fixed bug that prevented deleting of certain isoforms after database optimizations were applied in RC2 (#497).
 + Moving to opposite strand was not recalculating the ORF (#468).
@@ -356,7 +538,7 @@ Features
 + Added gzip functionality to data downloads (#252).
 + Added command line exporter for GFF3.
 
-Bugfixes
+Bug Fixes
 
 + Fixed small bug with permission checking on creating new organism permissions (#463).
 + Fixed bug with stop codons being retained in peptide sequence exports (#448).
@@ -383,7 +565,7 @@ Features
 + Updated undo/redo operations to work in WA2.0 and fixed several issues with undoing merged transcript operations (#356).
 
 
-Bugfixes
+Bug Fixes
 
 + Fixed several bugs with sequence alternations (#442, #447, 428, #420).
 + Fixed bug with in-frame stop codons not being identified after manually setting translation start (#55).
@@ -405,7 +587,7 @@ Features
 + Changed maxHeight on "User-created Annotations" track to prevent overflow (#124).
 + Allow single-level features to be dragged to the "User-created Annotations" track for editing (#193).
 
-Bugfixes
+Bug Fixes
 
 + Updated URL to new server to access Gene Ontology terms (GOLR) (#190).
 + Fixed an issue where the API could be used to create random berkeley DBs (#152).
@@ -435,7 +617,7 @@ Features
 
 + Added ability to view GFF3 for individual annotations
 
-Bugfixes
+Bug Fixes
 
 + Speed up set\_track\_permissions.pl (#118)
 + Fix some cases where error reporting was broken on login pages (#111)
@@ -475,7 +657,7 @@ Features:
 + Added command line exporters for GFF3 files.
 + Added light / dark color schemes.
 
-Bugfixes:
+Bug Fixes:
 
 + Fixed phase in GFF3 output
 + Disabled scrollToPreviousEdge/scrollToNextEdge if the feature is fully visible at the current zoom level
@@ -507,7 +689,7 @@ Features:
 + Can now directly set an annotation to a specific state from the history display
 + Added / updated filters for changes and sequences to be more memory efficient and added added filters.
 
-Bugfixes:
+Bug Fixes:
 
 + Fixed bug of not applying timestamp to temporary BLAT searches (also now requires unique token to guarantee uniqueness)
 + Fixed building of feature_relationship pointers in hybrid data store

@@ -7,6 +7,15 @@ class UrlMappings {
             }
         }
 
+        //known bug for export plugin because grails is convention over configuration
+        // https://stackoverflow.com/questions/22882691/grails-2-3-x-get-the-value-of-url-parameters
+        "/$controller/$action?/$id?" {
+            constraints {
+                // apply constraints here
+                action(validator: { return it == 'export'})
+            }
+        }
+        
 
         "/"(redirect: '/annotator/index')
         "500"(view: '/error')
@@ -21,8 +30,18 @@ class UrlMappings {
         "/track/${organismString}/${trackName}/${sequence}/${featureName}.${type}"(controller: "track", action: "featuresByName",[params:params])
         "/track/${organismString}/${trackName}/${sequence}:${fmin}..${fmax}.${type}"(controller: "track", action: "featuresByLocation",[params:params])
         "/track/${organismString}/${trackName}/?loc=${sequence}:${fmin}..${fmax}.${type}"(controller: "track", action: "featuresByLocation",[params:params])
+
+        "/track/list/${organismName}"(controller: "track", action: "getTracks",[params:params])
         "/track/cache/clear/${organismName}/${trackName}"(controller: "track", action: "clearTrackCache")
         "/track/cache/clear/${organismName}"(controller: "track", action: "clearOrganismCache")
+
+        "/vcf/${organismString}/${trackName}/${sequence}:${fmin}..${fmax}.${type}"(controller: "vcf", action: "featuresByLocation",[params:params])
+
+        "/sequence/${organismString}/?loc=${sequenceName}:${fmin}..${fmax}"(controller: "sequence", action: "sequenceByLocation",[params:params])
+        "/sequence/${organismString}/${sequenceName}:${fmin}..${fmax}"(controller: "sequence", action: "sequenceByLocation",[params:params])
+        "/sequence/${organismString}/${sequenceName}/${featureName}.${type}"(controller: "sequence", action: "sequenceByName",[params:params])
+        "/sequence/cache/clear/${organismName}/${sequenceName}"(controller: "sequence", action: "clearSequenceCache")
+        "/sequence/cache/clear/${organismName}"(controller: "sequence", action: "clearOrganismCache")
 
         // TODO: remove if we merge with the JSON
         "/track/biolink/${organismString}/${trackName}/${sequence}:${fmin}..${fmax}.biolink"(controller: "track", action: "biolink")

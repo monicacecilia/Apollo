@@ -1,5 +1,6 @@
 package org.bbop.apollo.gwt.client.dto;
 
+import com.google.gwt.http.client.URL;
 import com.google.gwt.json.client.JSONArray;
 import com.google.gwt.json.client.JSONNumber;
 import com.google.gwt.json.client.JSONObject;
@@ -21,6 +22,7 @@ public class UserInfo implements HasJSON {
     private String email;
     private String role;
     private Integer numberUserGroups;
+    private Boolean inactive;
     private String password;
     private List<String> groupList = new ArrayList<>();
     private List<String> availableGroupList = new ArrayList<>();
@@ -45,6 +47,14 @@ public class UserInfo implements HasJSON {
         } else if (userObject.get("id") != null) {
             setUserId((long) userObject.get("id").isNumber().doubleValue());
         }
+    }
+
+    public Boolean getInactive() {
+        return inactive;
+    }
+
+    public void setInactive(Boolean inactive) {
+        this.inactive = inactive;
     }
 
     public Long getUserId() {
@@ -164,7 +174,7 @@ public class UserInfo implements HasJSON {
         jsonObject.put("availableGroups", availableGroupArray);
 
         if (password != null) {
-            jsonObject.put("newPassword", new JSONString(password));
+            jsonObject.put("newPassword", new JSONString(URL.encodeQueryString(password)));
         }
 
         JSONArray organismPermissions = new JSONArray();

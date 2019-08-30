@@ -32,8 +32,14 @@ class FeatureService {
     def organismService
     def sessionFactory
 
-    public static final def rnaFeatureTypes = [MRNA.alternateCvTerm,MiRNA.alternateCvTerm,NcRNA.alternateCvTerm, RRNA.alternateCvTerm, SnRNA.alternateCvTerm, SnoRNA.alternateCvTerm, TRNA.alternateCvTerm, Transcript.alternateCvTerm]
-    public static final def singletonFeatureTypes = [RepeatRegion.alternateCvTerm, TransposableElement.alternateCvTerm]
+    public static final String MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE = "Manually associate transcript to gene"
+    public static final String MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE = "Manually dissociate transcript from gene"
+    public static final String MANUALLY_ASSOCIATE_FEATURE_TO_GENE = "Manually associate feature to gene"
+    public static final String MANUALLY_DISSOCIATE_FEATURE_FROM_GENE = "Manually dissociate feature from gene"
+    public static final
+    def rnaFeatureTypes = [MRNA.cvTerm, MiRNA.cvTerm, NcRNA.cvTerm, RRNA.cvTerm, SnRNA.cvTerm, SnoRNA.cvTerm, TRNA.cvTerm, Transcript.cvTerm]
+    public static final def singletonFeatureTypes = [RepeatRegion.cvTerm, TransposableElement.cvTerm,Terminator.cvTerm]
+
     @Timed
     @Transactional
     FeatureLocation convertJSONToFeatureLocation(JSONObject jsonLocation, Sequence sequence, int defaultStrand = Strand.POSITIVE.value) throws JSONException {
@@ -45,8 +51,7 @@ class FeatureService {
         gsolLocation.setFmax(jsonLocation.getInt(FeatureStringEnum.FMAX.value));
         if (jsonLocation.getInt(FeatureStringEnum.STRAND.value) == Strand.POSITIVE.value || jsonLocation.getInt(FeatureStringEnum.STRAND.value) == Strand.NEGATIVE.value) {
             gsolLocation.setStrand(jsonLocation.getInt(FeatureStringEnum.STRAND.value));
-        }
-        else {
+        } else {
             gsolLocation.setStrand(defaultStrand)
         }
         gsolLocation.setSequence(sequence)
@@ -89,11 +94,40 @@ class FeatureService {
         }
     }
 
+    /**
+     * See if there is overlapping sequence alteration for a range
+     *
+     * Case 1:
+     * - fmin / fmax on either side of alteration
+     *
+     * Case 2:
+     * - fmin / fmax both within the alteration
+     *
+     * Case 3:
+     * - fmin / fmax stradles min side of alteration
+     *
+     * Case 4:
+     * - fmin / fmax stradles max side of alteration
+     *
+     * @param sequence
+     * @param fmin  Inclusive fmin
+     * @param fmax  Exclusive fmax
+     * @return
+     */
     def getOverlappingSequenceAlterations(Sequence sequence, int fmin, int fmax) {
-        Feature.executeQuery(
-                "SELECT DISTINCT sa FROM SequenceAlteration sa JOIN sa.featureLocations fl WHERE fl.sequence = :sequence AND ((fl.fmin <= :fmin AND fl.fmax > :fmin) OR (fl.fmin <= :fmax AND fl.fmax >= :fmax) OR (fl.fmin >= :fmin AND fl.fmax <= :fmax))",
+        def alterations = Feature.executeQuery(
+                "SELECT DISTINCT sa FROM SequenceAlterationArtifact sa JOIN sa.featureLocations fl WHERE fl.sequence = :sequence AND ((fl.fmin <= :fmin AND fl.fmax > :fmin) OR (fl.fmin <= :fmax AND fl.fmax >= :fmax) OR (fl.fmin >= :fmin AND fl.fmax <= :fmax))",
                 [fmin: fmin, fmax: fmax, sequence: sequence]
         )
+
+        if(alterations){
+            for (a in alterations){
+                log.debug "locations: ${a.fmin}->${a.fmax} for ${fmin}->${fmax}"
+            }
+        }
+
+
+        return alterations
     }
 
     @Transactional
@@ -124,6 +158,19 @@ class FeatureService {
         }
     }
 
+    @Transactional
+    def addOwnersByString(def username,Feature... features){
+        User owner = User.findByUsername(username as String)
+        if (owner && features) {
+            log.debug "setting owner for feature ${features} to ${owner}"
+            features.each{
+                it.addToOwners(owner)
+            }
+        } else {
+            log.warn "user ${owner} or feature ${features} is null so not setting"
+        }
+    }
+
     /**
      * From Gene.addTranscript
      * @return
@@ -132,6 +179,7 @@ class FeatureService {
     @Timed
     @Transactional
     def generateTranscript(JSONObject jsonTranscript, Sequence sequence, boolean suppressHistory, boolean useCDS = configWrapperService.useCDS(), boolean useName = false) {
+        log.debug "jsonTranscript: ${jsonTranscript.toString()}"
         Gene gene = jsonTranscript.has(FeatureStringEnum.PARENT_ID.value) ? (Gene) Feature.findByUniqueName(jsonTranscript.getString(FeatureStringEnum.PARENT_ID.value)) : null;
         Transcript transcript = null
         boolean readThroughStopCodon = false
@@ -154,8 +202,7 @@ class FeatureService {
 
             if (!useCDS || cds == null) {
                 calculateCDS(transcript, readThroughStopCodon)
-            }
-            else {
+            } else {
                 // if there are any sequence alterations that overlaps this transcript then
                 // recalculate the CDS to account for these changes
                 def sequenceAlterations = getSequenceAlterationsForFeature(transcript)
@@ -174,137 +221,156 @@ class FeatureService {
                 transcript.name = jsonTranscript.get(FeatureStringEnum.NAME.value)
             }
         } else {
-            // Scenario II - find an overlapping isoform and if present, add current transcript to its gene
-            FeatureLocation featureLocation = convertJSONToFeatureLocation(jsonTranscript.getJSONObject(FeatureStringEnum.LOCATION.value), sequence)
-            Collection<Feature> overlappingFeatures = getOverlappingFeatures(featureLocation).findAll() {
-                it = Feature.get(it.id)
-                it instanceof Gene
+
+            boolean createGeneFromJSON = false
+            if (jsonTranscript.containsKey(FeatureStringEnum.PARENT.value) && jsonTranscript.containsKey(FeatureStringEnum.PROPERTIES.value)) {
+                for (JSONObject property : jsonTranscript.getJSONArray(FeatureStringEnum.PROPERTIES.value)) {
+                    if (property.containsKey(FeatureStringEnum.NAME.value)
+                            && property.get(FeatureStringEnum.NAME.value) == FeatureStringEnum.COMMENT.value
+                            && property.get(FeatureStringEnum.VALUE.value) == MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE) {
+                        createGeneFromJSON = true
+                        break
+                    }
+                }
             }
 
-            log.debug "overlapping features: ${overlappingFeatures.size()}"
-            for (Feature eachFeature : overlappingFeatures) {
-                // get the proper object instead of its proxy, due to lazy loading
-                Feature feature = Feature.get(eachFeature.id)
-                log.debug "evaluating overlap of feature ${feature.name} of class ${feature.class.name}"
+            if (!createGeneFromJSON) {
+                log.debug "Gene from parent_id doesn't exist; trying to find overlapping isoform"
+                // Scenario II - find an overlapping isoform and if present, add current transcript to its gene
+                FeatureLocation featureLocation = convertJSONToFeatureLocation(jsonTranscript.getJSONObject(FeatureStringEnum.LOCATION.value), sequence)
+                Collection<Feature> overlappingFeatures = getOverlappingFeatures(featureLocation).findAll() {
+                    it = Feature.get(it.id)
+                    it instanceof Gene
+                }
 
-                if (!gene && feature instanceof Gene && !(feature instanceof Pseudogene)) {
-                    Gene tmpGene = (Gene) feature;
-                    log.debug "found an overlapping gene ${tmpGene}"
-                    // removing name from transcript JSON since its naming will be based off of the overlapping gene
-                    Transcript tmpTranscript
-                    if (jsonTranscript.has(FeatureStringEnum.NAME.value)) {
-                        String originalName = jsonTranscript.get(FeatureStringEnum.NAME.value)
-                        jsonTranscript.remove(FeatureStringEnum.NAME.value)
-                        tmpTranscript = (Transcript) convertJSONToFeature(jsonTranscript, sequence);
-                        jsonTranscript.put(FeatureStringEnum.NAME.value, originalName)
-                        updateNewGsolFeatureAttributes(tmpTranscript)
+                log.debug "overlapping genes: ${overlappingFeatures.name}"
+                List<Feature> overlappingFeaturesToCheck = new ArrayList<Feature>()
+                overlappingFeatures.each {
+                    if (!checkForComment(it, MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE) && !checkForComment(it, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)) {
+                        overlappingFeaturesToCheck.add(it)
                     }
-                    else {
-                        tmpTranscript = (Transcript) convertJSONToFeature(jsonTranscript, sequence);
-                        updateNewGsolFeatureAttributes(tmpTranscript)
-                    }
+                }
 
-                    if (tmpTranscript.getFmin() < 0 || tmpTranscript.getFmax() < 0) {
-                        throw new AnnotationException("Feature cannot have negative coordinates");
-                    }
+                for (Feature eachFeature : overlappingFeaturesToCheck) {
+                    // get the proper object instead of its proxy, due to lazy loading
+                    Feature feature = Feature.get(eachFeature.id)
+                    log.debug "evaluating overlap of feature ${feature.name} of class ${feature.class.name}"
 
-                    //this one is working, but was marked as needing improvement
-                    setOwner(tmpTranscript, owner);
-
-                    CDS cds = transcriptService.getCDS(tmpTranscript)
-                    if (cds) {
-                        readThroughStopCodon = cdsService.getStopCodonReadThrough(cds) ? true : false
-                    }
-
-                    if (!useCDS || cds == null) {
-                        calculateCDS(tmpTranscript, readThroughStopCodon)
-                    }
-                    else {
-                        // if there are any sequence alterations that overlaps this transcript then
-                        // recalculate the CDS to account for these changes
-                        def sequenceAlterations = getSequenceAlterationsForFeature(tmpTranscript)
-                        if (sequenceAlterations.size() > 0) {
-                            calculateCDS(tmpTranscript)
+                    if (!gene && feature instanceof Gene && !(feature instanceof Pseudogene)) {
+                        Gene tmpGene = (Gene) feature;
+                        log.debug "found an overlapping gene ${tmpGene}"
+                        // removing name from transcript JSON since its naming will be based off of the overlapping gene
+                        Transcript tmpTranscript
+                        if (jsonTranscript.has(FeatureStringEnum.NAME.value)) {
+                            String originalName = jsonTranscript.get(FeatureStringEnum.NAME.value)
+                            jsonTranscript.remove(FeatureStringEnum.NAME.value)
+                            tmpTranscript = (Transcript) convertJSONToFeature(jsonTranscript, sequence);
+                            jsonTranscript.put(FeatureStringEnum.NAME.value, originalName)
+                            updateNewGsolFeatureAttributes(tmpTranscript)
+                        } else {
+                            tmpTranscript = (Transcript) convertJSONToFeature(jsonTranscript, sequence);
+                            updateNewGsolFeatureAttributes(tmpTranscript)
                         }
-                    }
 
-                    if (!suppressHistory) {
-                        tmpTranscript.name = nameService.generateUniqueName(tmpTranscript, tmpGene.name)
-                    }
+                        if (tmpTranscript.getFmin() < 0 || tmpTranscript.getFmax() < 0) {
+                            throw new AnnotationException("Feature cannot have negative coordinates");
+                        }
 
-                    // setting back the original name for transcript
-                    if (useName && jsonTranscript.has(FeatureStringEnum.NAME.value)) {
-                        tmpTranscript.name = jsonTranscript.get(FeatureStringEnum.NAME.value)
-                    }
+                        //this one is working, but was marked as needing improvement
+                        setOwner(tmpTranscript, owner);
 
-                    if (tmpTranscript && tmpGene && overlapperService.overlaps(tmpTranscript, tmpGene)) {
-                        log.debug "There is an overlap, adding to an existing gene"
-                        transcript = tmpTranscript;
-                        gene = tmpGene;
-                        addTranscriptToGene(gene, transcript)
-                        nonCanonicalSplitSiteService.findNonCanonicalAcceptorDonorSpliceSites(transcript);
-                        transcript.save()
+                        CDS cds = transcriptService.getCDS(tmpTranscript)
+                        if (cds) {
+                            readThroughStopCodon = cdsService.getStopCodonReadThrough(cds) ? true : false
+                        }
 
-                        if (jsonTranscript.has(FeatureStringEnum.PARENT.value)) {
-                            // use metadata of incoming transcript's gene
-                            JSONObject jsonGene = jsonTranscript.getJSONObject(FeatureStringEnum.PARENT.value)
-                            if (jsonGene.has(FeatureStringEnum.DBXREFS.value)) {
-                                // parse dbxrefs
-                                JSONArray dbxrefs = jsonGene.getJSONArray(FeatureStringEnum.DBXREFS.value)
-                                for (JSONObject dbxref : dbxrefs) {
-                                    String dbString = dbxref.get(FeatureStringEnum.DB.value).name
-                                    String accessionString = dbxref.get(FeatureStringEnum.ACCESSION.value)
-                                    // TODO: needs improvement
-                                    boolean exists = false
-                                    tmpGene.featureDBXrefs.each {
-                                        if (it.db.name == dbString && it.accession == accessionString) {
-                                            exists = true
-                                        }
-                                    }
-                                    if (!exists) {
-                                        addNonPrimaryDbxrefs(tmpGene, dbString, accessionString)
-                                    }
-                                }
+                        if (!useCDS || cds == null) {
+                            calculateCDS(tmpTranscript, readThroughStopCodon)
+                        } else {
+                            // if there are any sequence alterations that overlaps this transcript then
+                            // recalculate the CDS to account for these changes
+                            def sequenceAlterations = getSequenceAlterationsForFeature(tmpTranscript)
+                            if (sequenceAlterations.size() > 0) {
+                                calculateCDS(tmpTranscript)
                             }
-                            tmpGene.save()
+                        }
 
-                            if (jsonGene.has(FeatureStringEnum.PROPERTIES.value)) {
-                                // parse properties
-                                JSONArray featureProperties = jsonGene.getJSONArray(FeatureStringEnum.PROPERTIES.value)
-                                for (JSONObject featureProperty : featureProperties) {
-                                    String tagString = featureProperty.get(FeatureStringEnum.TYPE.value).name
-                                    String valueString = featureProperty.get(FeatureStringEnum.VALUE.value)
-                                    // TODO: needs improvement
-                                    boolean exists = false
-                                    tmpGene.featureProperties.each {
-                                        if (it instanceof Comment) {
-                                            exists = true
+                        if (!suppressHistory) {
+                            tmpTranscript.name = nameService.generateUniqueName(tmpTranscript, tmpGene?.name)
+                        }
+
+                        // setting back the original name for transcript
+                        if (useName && jsonTranscript.has(FeatureStringEnum.NAME.value)) {
+                            tmpTranscript.name = jsonTranscript.get(FeatureStringEnum.NAME.value)
+                        }
+
+                        if (tmpTranscript && tmpGene && overlapperService.overlaps(tmpTranscript, tmpGene)) {
+                            log.debug "There is an overlap, adding to an existing gene"
+                            transcript = tmpTranscript;
+                            gene = tmpGene;
+                            addTranscriptToGene(gene, transcript)
+                            nonCanonicalSplitSiteService.findNonCanonicalAcceptorDonorSpliceSites(transcript);
+                            transcript.save()
+
+                            if (jsonTranscript.has(FeatureStringEnum.PARENT.value)) {
+                                // use metadata of incoming transcript's gene
+                                JSONObject jsonGene = jsonTranscript.getJSONObject(FeatureStringEnum.PARENT.value)
+                                if (jsonGene.has(FeatureStringEnum.DBXREFS.value)) {
+                                    // parse dbxrefs
+                                    JSONArray dbxrefs = jsonGene.getJSONArray(FeatureStringEnum.DBXREFS.value)
+                                    for (JSONObject dbxref : dbxrefs) {
+                                        String dbString = dbxref.get(FeatureStringEnum.DB.value).name
+                                        String accessionString = dbxref.get(FeatureStringEnum.ACCESSION.value)
+                                        // TODO: needs improvement
+                                        boolean exists = false
+                                        tmpGene.featureDBXrefs.each {
+                                            if (it.db.name == dbString && it.accession == accessionString) {
+                                                exists = true
+                                            }
                                         }
-                                        else if (it.tag == tagString && it.value == valueString) {
-                                            exists = true
-                                        }
-                                    }
-                                    if (!exists) {
-                                        if (tagString == FeatureStringEnum.COMMENT.value) {
-                                            // if FeatureProperty is a comment
-                                            featurePropertyService.addComment(tmpGene, valueString)
-                                        }
-                                        else {
-                                            addNonReservedProperties(tmpGene, tagString, valueString)
+                                        if (!exists) {
+                                            addNonPrimaryDbxrefs(tmpGene, dbString, accessionString)
                                         }
                                     }
                                 }
+                                tmpGene.save()
+
+                                if (jsonGene.has(FeatureStringEnum.PROPERTIES.value)) {
+                                    // parse properties
+                                    JSONArray featureProperties = jsonGene.getJSONArray(FeatureStringEnum.PROPERTIES.value)
+                                    for (JSONObject featureProperty : featureProperties) {
+                                        String tagString = featureProperty.get(FeatureStringEnum.TYPE.value).name
+                                        String valueString = featureProperty.get(FeatureStringEnum.VALUE.value)
+                                        // TODO: needs improvement
+                                        boolean exists = false
+                                        tmpGene.featureProperties.each {
+                                            if (it instanceof Comment) {
+                                                exists = true
+                                            } else if (it.tag == tagString && it.value == valueString) {
+                                                exists = true
+                                            }
+                                        }
+                                        if (!exists) {
+                                            if (tagString == FeatureStringEnum.COMMENT.value) {
+                                                // if FeatureProperty is a comment
+                                                featurePropertyService.addComment(tmpGene, valueString)
+                                            } else {
+                                                addNonReservedProperties(tmpGene, tagString, valueString)
+                                            }
+                                        }
+                                    }
+                                }
+                                tmpGene.save()
                             }
-                            tmpGene.save()
+                            gene.save(insert: false, flush: true)
+                            break;
+                        } else {
+                            featureRelationshipService.deleteFeatureAndChildren(tmpTranscript)
+                            log.debug "There is no overlap, we are going to return a NULL gene and a NULL transcript "
                         }
-                        gene.save(insert: false, flush: true)
-                        break;
                     } else {
-                        featureRelationshipService.deleteFeatureAndChildren(tmpTranscript)
-                        log.debug "There is no overlap, we are going to return a NULL gene and a NULL transcript "
+                        log.error "Feature is not an instance of a gene or is a pseudogene"
                     }
-                } else {
-                    log.error "Feature is not an instance of a gene or is a pseudogene"
                 }
             }
         }
@@ -316,8 +382,7 @@ class FeatureService {
                 // Scenario IIIa - use the 'parent' attribute, if provided, from transcript JSON
                 jsonGene = JSON.parse(jsonTranscript.getString(FeatureStringEnum.PARENT.value)) as JSONObject
                 jsonGene.put(FeatureStringEnum.CHILDREN.value, new JSONArray().put(jsonTranscript))
-            }
-            else {
+            } else {
                 // Scenario IIIb - use the current mRNA's featurelocation for gene
                 jsonGene.put(FeatureStringEnum.CHILDREN.value, new JSONArray().put(jsonTranscript));
                 jsonGene.put(FeatureStringEnum.LOCATION.value, jsonTranscript.getJSONObject(FeatureStringEnum.LOCATION.value));
@@ -328,11 +393,9 @@ class FeatureService {
             String geneName = null
             if (jsonGene.has(FeatureStringEnum.NAME.value)) {
                 geneName = jsonGene.get(FeatureStringEnum.NAME.value)
-            }
-            else if (jsonTranscript.has(FeatureStringEnum.NAME.value)) {
+            } else if (jsonTranscript.has(FeatureStringEnum.NAME.value)) {
                 geneName = jsonTranscript.getString(FeatureStringEnum.NAME.value)
-            }
-            else {
+            } else {
 //                geneName = nameService.makeUniqueFeatureName(sequence.organism, sequence.name, new LetterPaddingStrategy(), false)
                 geneName = nameService.makeUniqueGeneName(sequence.organism, sequence.name, false)
             }
@@ -360,8 +423,7 @@ class FeatureService {
 
             if (!useCDS || cds == null) {
                 calculateCDS(transcript, readThroughStopCodon)
-            }
-            else {
+            } else {
                 // if there are any sequence alterations that overlaps this transcript then
                 // recalculate the CDS to account for these changes
                 def sequenceAlterations = getSequenceAlterationsForFeature(transcript)
@@ -476,7 +538,7 @@ class FeatureService {
      */
     @Transactional
     def removeExonOverlapsAndAdjacencies(Transcript transcript) throws AnnotationException {
-        List<Exon> sortedExons = transcriptService.getSortedExons(transcript,false)
+        List<Exon> sortedExons = transcriptService.getSortedExons(transcript, false)
         if (!sortedExons || sortedExons?.size() <= 1) {
             return;
         }
@@ -490,7 +552,7 @@ class FeatureService {
                 if (overlapperService.overlaps(leftExon, rightExon) || isAdjacentTo(leftExon.getFeatureLocation(), rightExon.getFeatureLocation())) {
                     try {
                         exonService.mergeExons(leftExon, rightExon);
-                        sortedExons = transcriptService.getSortedExons(transcript,false)
+                        sortedExons = transcriptService.getSortedExons(transcript, false)
                         // we have to reload the sortedExons again and start over
                         ++inc;
                     } catch (AnnotationException e) {
@@ -602,7 +664,7 @@ class FeatureService {
  * @param setTranslationEnd - if set to true, will search for the nearest in frame stop codon
  */
     @Transactional
-    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd) {
+    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd) throws AnnotationException{
         log.debug "setTranslationStart(transcript,translationStart,translationEnd)"
         setTranslationStart(transcript, translationStart, setTranslationEnd, false);
     }
@@ -617,7 +679,7 @@ class FeatureService {
  * @param readThroughStopCodon - if set to true, will read through the first stop codon to the next
  */
     @Transactional
-    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd, boolean readThroughStopCodon) {
+    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd, boolean readThroughStopCodon) throws AnnotationException{
         log.debug "setTranslationStart(transcript,translationStart,translationEnd,readThroughStopCodon)"
         setTranslationStart(transcript, translationStart, setTranslationEnd, setTranslationEnd ? organismService.getTranslationTable(transcript.featureLocation.sequence.organism) : null, readThroughStopCodon);
     }
@@ -642,7 +704,7 @@ class FeatureService {
 
     int convertLocalCoordinateToSourceCoordinateForTranscript(Transcript transcript, int localCoordinate) {
         // Method converts localCoordinate to sourceCoordinate in reference to the Transcript
-        List<Exon> exons = transcriptService.getSortedExons(transcript,true)
+        List<Exon> exons = transcriptService.getSortedExons(transcript, true)
         int sourceCoordinate = -1;
         if (exons.size() == 0) {
             return convertLocalCoordinateToSourceCoordinate(transcript, localCoordinate);
@@ -672,7 +734,7 @@ class FeatureService {
             return convertLocalCoordinateToSourceCoordinate(cds, localCoordinate);
         }
         int offset = 0;
-        List<Exon> exons = transcriptService.getSortedExons(transcript,true)
+        List<Exon> exons = transcriptService.getSortedExons(transcript, true)
         if (exons.size() == 0) {
             log.debug "FS::convertLocalCoordinateToSourceCoordinateForCDS() - No exons for given transcript"
             return convertLocalCoordinateToSourceCoordinate(cds, localCoordinate)
@@ -719,26 +781,38 @@ class FeatureService {
  * @param readThroughStopCodon - if set to true, will read through the first stop codon to the next
  */
     @Transactional
-    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd, TranslationTable translationTable, boolean readThroughStopCodon) {
+    void setTranslationStart(Transcript transcript, int translationStart, boolean setTranslationEnd, TranslationTable translationTable, boolean readThroughStopCodon) throws AnnotationException{
         CDS cds = transcriptService.getCDS(transcript);
         if (cds == null) {
             cds = transcriptService.createCDS(transcript);
             featureRelationshipService.addChildFeature(transcript, cds)
 //            transcript.setCDS(cds);
         }
+        // if the end is set, then we make sure we are going to set a legal coordinate
+        if (cdsService.isManuallySetTranslationEnd(cds)) {
+            if (transcript.strand == Strand.NEGATIVE.value) {
+                if (translationStart <= cds.featureLocation.fmin) {
+                    throw new AnnotationException("Translation start ${translationStart} must be upstream of the end ${cds.featureLocation.fmin} (larger)")
+                }
+            } else {
+                if (translationStart >= cds.featureLocation.fmax) {
+                    throw new AnnotationException("Translation start ${translationStart} must be upstream of the end ${cds.featureLocation.fmax} (smaller) ")
+                }
+            }
+        }
         FeatureLocation transcriptFeatureLocation = FeatureLocation.findByFeature(transcript)
         if (transcriptFeatureLocation.strand == Strand.NEGATIVE.value) {
-            setFmax(cds, translationStart + 1);
+            setFmax(cds, translationStart + 1)
         } else {
-            setFmin(cds, translationStart);
+            setFmin(cds, translationStart)
         }
         cdsService.setManuallySetTranslationStart(cds, true);
 //        cds.deleteStopCodonReadThrough();
-        cdsService.deleteStopCodonReadThrough(cds);
+        cdsService.deleteStopCodonReadThrough(cds)
 //        featureRelationshipService.deleteRelationships()
 
         if (setTranslationEnd && translationTable != null) {
-            String mrna = getResiduesWithAlterationsAndFrameshifts(transcript);
+            String mrna = getResiduesWithAlterationsAndFrameshifts(transcript)
             if (mrna == null || mrna.equals("null")) {
                 return;
             }
@@ -829,7 +903,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
  * @param translationEnd - Coordinate of the end of translation
  */
     @Transactional
-    void setTranslationEnd(Transcript transcript, int translationEnd) {
+    void setTranslationEnd(Transcript transcript, int translationEnd) throws AnnotationException{
         setTranslationEnd(transcript, translationEnd, false);
     }
 
@@ -842,7 +916,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
  * @param setTranslationStart - if set to true, will search for the nearest in frame start
  */
     @Transactional
-    void setTranslationEnd(Transcript transcript, int translationEnd, boolean setTranslationStart) {
+    void setTranslationEnd(Transcript transcript, int translationEnd, boolean setTranslationStart) throws AnnotationException{
         setTranslationEnd(transcript, translationEnd, setTranslationStart,
                 setTranslationStart ? organismService.getTranslationTable(transcript.featureLocation.sequence.organism) : null
         );
@@ -858,12 +932,26 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
  * @param translationTable - Translation table that defines the codon translation
  */
     @Transactional
-    void setTranslationEnd(Transcript transcript, int translationEnd, boolean setTranslationStart, TranslationTable translationTable) {
+    void setTranslationEnd(Transcript transcript, int translationEnd, boolean setTranslationStart, TranslationTable translationTable) throws AnnotationException{
         CDS cds = transcriptService.getCDS(transcript);
         if (cds == null) {
             cds = transcriptService.createCDS(transcript);
             transcriptService.setCDS(transcript, cds);
         }
+        // if the start is set, then we make sure we are going to set a legal coordinate
+        if (cdsService.isManuallySetTranslationStart(cds)) {
+            log.info "${transcript.strand} min ${cds.featureLocation.fmin} vs transl end ${translationEnd}"
+            if (transcript.strand == Strand.NEGATIVE.value) {
+                if (translationEnd  >= cds.featureLocation.fmax ) {
+                    throw new AnnotationException("Translation end ${translationEnd} must be downstream of the start ${cds.featureLocation.fmax} (smaller)")
+                }
+            } else {
+                if (translationEnd <= cds.featureLocation.fmin ) {
+                    throw new AnnotationException("Translation end ${translationEnd} must be downstream of the start ${cds.featureLocation.fmin} (larger)")
+                }
+            }
+        }
+
         if (transcript.strand == Strand.NEGATIVE.value) {
             cds.featureLocation.setFmin(translationEnd);
         } else {
@@ -960,7 +1048,6 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
     }
 
-
     /** Get the residues for a feature with any alterations and frameshifts.
      *
      * @param feature - Feature to retrieve the residues for
@@ -971,8 +1058,8 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             return getResiduesWithAlterations(feature, getSequenceAlterationsForFeature(feature))
         }
         Transcript transcript = (Transcript) featureRelationshipService.getParentForFeature(feature, Transcript.ontologyId)
-        Collection<SequenceAlteration> alterations = getFrameshiftsAsAlterations(transcript);
-        List<SequenceAlteration> allSequenceAlterationList = getSequenceAlterationsForFeature(feature)
+        Collection<SequenceAlterationArtifact> alterations = getFrameshiftsAsAlterations(transcript);
+        List<SequenceAlterationArtifact> allSequenceAlterationList = getSequenceAlterationsForFeature(feature)
         alterations.addAll(allSequenceAlterationList);
         return getResiduesWithAlterations(feature, alterations)
     }
@@ -984,13 +1071,13 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
      * @param feature
      * @return
      */
-    List<SequenceAlteration> getAllSequenceAlterationsForFeature(Feature feature) {
+    List<SequenceAlterationArtifact> getAllSequenceAlterationsForFeature(Feature feature) {
         List<Sequence> sequence = Sequence.executeQuery("select s from Feature  f join f.featureLocations fl join fl.sequence s where f = :feature ", [feature: feature])
-        SequenceAlteration.executeQuery("select sa from SequenceAlteration sa join sa.featureLocations fl join fl.sequence s where s = :sequence order by fl.fmin asc ", [sequence: sequence])
+        SequenceAlterationArtifact.executeQuery("select sa from SequenceAlterationArtifact sa join sa.featureLocations fl join fl.sequence s where s = :sequence order by fl.fmin asc ", [sequence: sequence])
     }
 
-    List<SequenceAlteration> getFrameshiftsAsAlterations(Transcript transcript) {
-        List<SequenceAlteration> frameshifts = new ArrayList<SequenceAlteration>();
+    List<SequenceAlterationArtifact> getFrameshiftsAsAlterations(Transcript transcript) {
+        List<SequenceAlterationArtifact> frameshifts = new ArrayList<SequenceAlterationArtifact>();
         CDS cds = transcriptService.getCDS(transcript);
         if (cds == null) {
             return frameshifts;
@@ -1011,7 +1098,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                         , sequence: sequence
                 )
 
-                Deletion deletion = new Deletion(
+                DeletionArtifact deletion = new DeletionArtifact(
                         uniqueName: FeatureStringEnum.DELETION_PREFIX.value + frameshift.coordinate
                         , isObsolete: false
                         , isAnalysis: false
@@ -1033,7 +1120,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             } else {
                 // a minus frameshift goes back bases during translation, which can be mapped to an insertion for the
                 // the repeated bases
-                Insertion insertion = new Insertion(
+                InsertionArtifact insertion = new InsertionArtifact(
                         uniqueName: FeatureStringEnum.INSERTION_PREFIX.value + frameshift.coordinate
                         , isAnalysis: false
                         , isObsolete: false
@@ -1079,6 +1166,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
  * @param allowPartialExtension - Where partial ORFs should be used for possible extension
  *
  */
+
     @Timed
     @Transactional
     void setLongestORF(Transcript transcript, boolean readThroughStopCodon) {
@@ -1100,7 +1188,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             for (String startCodon : translationTable.getStartCodons()) {
                 // find the first start codon
                 startIndex = mrna.indexOf(startCodon)
-                while(startIndex >= 0) {
+                while (startIndex >= 0) {
                     String mrnaSubstring = mrna.substring(startIndex)
                     String aa = SequenceTranslationHandler.translateSequence(mrnaSubstring, translationTable, true, readThroughStopCodon)
                     if (aa.length() > longestPeptide.length()) {
@@ -1112,9 +1200,9 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             }
 
             // Just in case the 5' end is missing, check to see if a longer
-            // translation can be obatained without looking for a start codon
+            // translation can be obtained without looking for a start codon
             startIndex = 0
-            while(startIndex < 3) {
+            while (startIndex < 3) {
                 String mrnaSubstring = mrna.substring(startIndex)
                 String aa = SequenceTranslationHandler.translateSequence(mrnaSubstring, translationTable, true, readThroughStopCodon)
                 if (aa.length() > longestPeptide.length()) {
@@ -1130,8 +1218,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         if (!longestPeptide.substring(longestPeptide.length() - 1).equals(TranslationTable.STOP)) {
             partialStop = true
             bestStopIndex = -1
-        }
-        else {
+        } else {
             stopIndex = bestStartIndex + (longestPeptide.length() * 3)
             partialStop = false
             bestStopIndex = stopIndex
@@ -1158,8 +1245,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 }
                 setFmin(cds, fmin)
                 setFmax(cds, fmax)
-            }
-            else {
+            } else {
                 log.debug "bestStopIndex < 0"
                 int fmax = transcript.strand == Strand.NEGATIVE.value ? transcript.fmin : transcript.fmax
                 if (cds.strand == Strand.NEGATIVE.value) {
@@ -1174,8 +1260,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             if (cds.featureLocation.strand == Strand.NEGATIVE.value) {
                 cds.featureLocation.setIsFminPartial(partialStop)
                 cds.featureLocation.setIsFmaxPartial(partialStart)
-            }
-            else {
+            } else {
                 cds.featureLocation.setIsFminPartial(partialStart)
                 cds.featureLocation.setIsFmaxPartial(partialStop)
             }
@@ -1226,8 +1311,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             }
             if (jsonFeature.has(FeatureStringEnum.NAME.value)) {
                 gsolFeature.setName(jsonFeature.getString(FeatureStringEnum.NAME.value));
-            }
-            else {
+            } else {
                 // since name attribute cannot be null, using the feature's own uniqueName
                 gsolFeature.name = gsolFeature.uniqueName
             }
@@ -1237,13 +1321,59 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             if (jsonFeature.has(FeatureStringEnum.DESCRIPTION.value)) {
                 gsolFeature.setDescription(jsonFeature.getString(FeatureStringEnum.DESCRIPTION.value));
             }
-            if (gsolFeature instanceof Deletion) {
+            if (gsolFeature instanceof DeletionArtifact) {
                 int deletionLength = jsonFeature.location.fmax - jsonFeature.location.fmin
                 gsolFeature.deletionLength = deletionLength
             }
 
-            gsolFeature.save(failOnError: true)
+            if (gsolFeature instanceof SequenceAlteration) {
+                if (jsonFeature.has(FeatureStringEnum.REFERENCE_ALLELE.value)) {
+                    Allele allele = new Allele(bases: jsonFeature.getString(FeatureStringEnum.REFERENCE_ALLELE.value), reference: true)
+                    allele.save()
+                    gsolFeature.addToAlleles(allele)
+                    gsolFeature.save(failOnError: true)
+                    allele.variant = gsolFeature
+                    allele.save()
+                }
+                if (jsonFeature.has(FeatureStringEnum.ALTERNATE_ALLELES.value)) {
+                    JSONArray alternateAllelesArray = jsonFeature.getJSONArray(FeatureStringEnum.ALTERNATE_ALLELES.value)
+                    for (int i = 0; i < alternateAllelesArray.length(); i++) {
+                        JSONObject alternateAlleleJsonObject = alternateAllelesArray.getJSONObject(i)
+                        String bases = alternateAlleleJsonObject.getString(FeatureStringEnum.BASES.value)
+                        Allele allele = new Allele(bases: bases, variant: gsolFeature)
+                        allele.save()
 
+                        // Processing properties of an Allele
+                        if (alternateAllelesArray.getJSONObject(i).has(FeatureStringEnum.ALLELE_INFO.value)) {
+                            JSONArray alleleInfoArray = alternateAllelesArray.getJSONObject(i).getJSONArray(FeatureStringEnum.ALLELE_INFO.value)
+                            for (int j = 0; j < alleleInfoArray.length(); j++) {
+                                JSONObject info = alleleInfoArray.getJSONObject(j)
+                                String tag = info.getString(FeatureStringEnum.TAG.value)
+                                String value = info.getString(FeatureStringEnum.VALUE.value)
+                                AlleleInfo alleleInfo = new AlleleInfo(tag: tag, value: value, allele: allele).save()
+                                allele.addToAlleleInfo(alleleInfo)
+                            }
+                        }
+
+                        gsolFeature.addToAlleles(allele)
+                    }
+                }
+                gsolFeature.save(flush: true)
+
+                // Processing proerties of a variant
+                if (jsonFeature.has(FeatureStringEnum.VARIANT_INFO.value)) {
+                    JSONArray variantInfoArray = jsonFeature.getJSONArray(FeatureStringEnum.VARIANT_INFO.value)
+                    for (int i = 0; i < variantInfoArray.size(); i++) {
+                        JSONObject variantInfoObject = variantInfoArray.get(i)
+                        VariantInfo variantInfo = new VariantInfo(tag: variantInfoObject.get(FeatureStringEnum.TAG.value), value: variantInfoObject.get(FeatureStringEnum.VALUE.value))
+                        variantInfo.variant = gsolFeature
+                        variantInfo.save()
+                        gsolFeature.addToVariantInfo(variantInfo)
+                    }
+                }
+            }
+
+            gsolFeature.save(flush: true)
 
             if (jsonFeature.has(FeatureStringEnum.LOCATION.value)) {
                 JSONObject jsonLocation = jsonFeature.getJSONObject(FeatureStringEnum.LOCATION.value);
@@ -1259,9 +1389,9 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 gsolFeature.addToFeatureLocations(featureLocation);
             }
 
-            if (gsolFeature instanceof Deletion) {
-                sequenceService.setResiduesForFeatureFromLocation((Deletion) gsolFeature)
-            } else if (jsonFeature.has(FeatureStringEnum.RESIDUES.value) && gsolFeature instanceof SequenceAlteration) {
+            if (gsolFeature instanceof DeletionArtifact) {
+                sequenceService.setResiduesForFeatureFromLocation((DeletionArtifact) gsolFeature)
+            } else if (jsonFeature.has(FeatureStringEnum.RESIDUES.value) && gsolFeature instanceof SequenceAlterationArtifact) {
                 sequenceService.setResiduesForFeature(gsolFeature, jsonFeature.getString(FeatureStringEnum.RESIDUES.value))
             }
 
@@ -1295,21 +1425,51 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             } else {
                 gsolFeature.setLastUpdated(new Date());
             }
+            if(configWrapperService.storeOrigId()){
+                if (jsonFeature.has(FeatureStringEnum.ORIG_ID.value)) {
+                    FeatureProperty gsolProperty = new FeatureProperty()
+                    gsolProperty.setTag(FeatureStringEnum.ORIG_ID.value)
+                    gsolProperty.setValue(jsonFeature.get(FeatureStringEnum.ORIG_ID.value))
+                    gsolProperty.setFeature(gsolFeature)
+                    gsolProperty.save()
+                    gsolFeature.addToFeatureProperties(gsolProperty)
+                }
+            }
+
+
+            // handle status here
+            if (jsonFeature.has(FeatureStringEnum.STATUS.value)) {
+                String propertyValue = jsonFeature.get(FeatureStringEnum.STATUS.value)
+//                String propertyValue = property.get(FeatureStringEnum.VALUE.value)
+                AvailableStatus availableStatus = AvailableStatus.findByValue(propertyValue)
+                if (availableStatus) {
+                    Status status = new Status(
+                            value: availableStatus.value,
+                            feature: gsolFeature
+                    ).save(failOnError: true)
+                    gsolFeature.status = status
+                    gsolFeature.save()
+                } else {
+                    log.warn "Ignoring status ${propertyValue} as its not defined."
+                }
+            }
+
             if (jsonFeature.has(FeatureStringEnum.PROPERTIES.value)) {
                 JSONArray properties = jsonFeature.getJSONArray(FeatureStringEnum.PROPERTIES.value);
                 for (int i = 0; i < properties.length(); ++i) {
                     JSONObject property = properties.getJSONObject(i);
                     JSONObject propertyType = property.getJSONObject(FeatureStringEnum.TYPE.value);
-                    String propertyName = ""
+                    String propertyName = null
                     if (property.has(FeatureStringEnum.NAME.value)) {
                         propertyName = property.get(FeatureStringEnum.NAME.value)
                     }
-                    else {
+                    else
+                    if (propertyType.has(FeatureStringEnum.NAME.value)) {
                         propertyName = propertyType.get(FeatureStringEnum.NAME.value)
                     }
                     String propertyValue = property.get(FeatureStringEnum.VALUE.value)
 
-                    FeatureProperty gsolProperty = null;
+                    FeatureProperty gsolProperty = null
                     if (propertyName == FeatureStringEnum.STATUS.value) {
                         // property of type 'Status'
                         AvailableStatus availableStatus = AvailableStatus.findByValue(propertyValue)
@@ -1320,12 +1480,11 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                             ).save(failOnError: true)
                             gsolFeature.status = status
                             gsolFeature.save()
-                        }
-                        else {
+                        } else {
                             log.warn "Ignoring status ${propertyValue} as its not defined."
                         }
-                    }
-                    else {
+                    } else
+                    if (propertyName) {
                         if (propertyName == FeatureStringEnum.COMMENT.value) {
                             // property of type 'Comment'
                             gsolProperty = new Comment();
@@ -1384,14 +1543,14 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
 
     String getCvTermFromFeature(Feature feature) {
-        String cvTerm = feature.hasProperty(FeatureStringEnum.ALTERNATECVTERM.value) ? feature.getProperty(FeatureStringEnum.ALTERNATECVTERM.value) : feature.cvTerm
+        String cvTerm = feature.cvTerm
         return cvTerm
     }
 
     boolean isJsonTranscript(JSONObject jsonObject) {
         JSONObject typeObject = jsonObject.getJSONObject(FeatureStringEnum.TYPE.value)
         String typeString = typeObject.getString(FeatureStringEnum.NAME.value)
-        if (typeString == MRNA.cvTerm || typeString == MRNA.alternateCvTerm) {
+        if (typeString == MRNA.cvTerm) {
             return true
         } else {
             return false
@@ -1415,13 +1574,23 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             case Pseudogene.ontologyId: return new Pseudogene()
             case Transcript.ontologyId: return new Transcript()
             case TransposableElement.ontologyId: return new TransposableElement()
+            case Terminator.ontologyId: return new Terminator()
+            case ShineDalgarnoSequence.ontologyId: return new ShineDalgarnoSequence()
             case RepeatRegion.ontologyId: return new RepeatRegion()
+            case InsertionArtifact.ontologyId: return new InsertionArtifact()
+            case DeletionArtifact.ontologyId: return new DeletionArtifact()
+            case SubstitutionArtifact.ontologyId: return new SubstitutionArtifact()
             case Insertion.ontologyId: return new Insertion()
             case Deletion.ontologyId: return new Deletion()
             case Substitution.ontologyId: return new Substitution()
             case NonCanonicalFivePrimeSpliceSite.ontologyId: return new NonCanonicalFivePrimeSpliceSite()
             case NonCanonicalThreePrimeSpliceSite.ontologyId: return new NonCanonicalThreePrimeSpliceSite()
             case StopCodonReadThrough.ontologyId: return new StopCodonReadThrough()
+            case SNV.ontologyId: return new SNV()
+            case SNP.ontologyId: return new SNP()
+            case MNV.ontologyId: return new MNV()
+            case MNP.ontologyId: return new MNP()
+            case Indel.ontologyId: return new Indel()
             default:
                 log.error("No feature type exists for ${ontologyId}")
                 return null
@@ -1450,8 +1619,15 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 case Pseudogene.cvTerm.toUpperCase(): return Pseudogene.ontologyId
                 case TransposableElement.alternateCvTerm.toUpperCase():
                 case TransposableElement.cvTerm.toUpperCase(): return TransposableElement.ontologyId
+                case Terminator.alternateCvTerm.toUpperCase():
+                case Terminator.cvTerm.toUpperCase(): return Terminator.ontologyId
+                case ShineDalgarnoSequence.alternateCvTerm.toUpperCase():
+                case ShineDalgarnoSequence.cvTerm.toUpperCase(): return ShineDalgarnoSequence.ontologyId
                 case RepeatRegion.alternateCvTerm.toUpperCase():
                 case RepeatRegion.cvTerm.toUpperCase(): return RepeatRegion.ontologyId
+                case InsertionArtifact.cvTerm.toUpperCase(): return InsertionArtifact.ontologyId
+                case DeletionArtifact.cvTerm.toUpperCase(): return DeletionArtifact.ontologyId
+                case SubstitutionArtifact.cvTerm.toUpperCase(): return SubstitutionArtifact.ontologyId
                 case Insertion.cvTerm.toUpperCase(): return Insertion.ontologyId
                 case Deletion.cvTerm.toUpperCase(): return Deletion.ontologyId
                 case Substitution.cvTerm.toUpperCase(): return Substitution.ontologyId
@@ -1460,6 +1636,11 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 case NonCanonicalThreePrimeSpliceSite.cvTerm.toUpperCase(): return NonCanonicalThreePrimeSpliceSite.ontologyId
                 case NonCanonicalFivePrimeSpliceSite.alternateCvTerm.toUpperCase(): return NonCanonicalFivePrimeSpliceSite.ontologyId
                 case NonCanonicalThreePrimeSpliceSite.alternateCvTerm.toUpperCase(): return NonCanonicalThreePrimeSpliceSite.ontologyId
+                case SNV.cvTerm.toUpperCase(): return SNV.ontologyId
+                case SNP.cvTerm.toUpperCase(): return SNP.ontologyId
+                case MNV.cvTerm.toUpperCase(): return MNV.ontologyId
+                case MNP.cvTerm.toUpperCase(): return MNP.ontologyId
+                case Indel.cvTerm.toUpperCase(): return Indel.ontologyId
                 default:
                     log.error("CV Term not known ${cvTermString} for CV ${FeatureStringEnum.SEQUENCE}")
                     return null
@@ -1524,7 +1705,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
     }
 
     int convertSourceCoordinateToLocalCoordinateForTranscript(Transcript transcript, int sourceCoordinate) {
-        List<Exon> exons = transcriptService.getSortedExons(transcript,true)
+        List<Exon> exons = transcriptService.getSortedExons(transcript, true)
         int localCoordinate = -1
         int currentCoordinate = 0
         for (Exon exon : exons) {
@@ -1548,8 +1729,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         if (feature instanceof Transcript) {
             exons = transcriptService.getSortedExons(feature, true)
             cds = transcriptService.getCDS(feature)
-        }
-        else if (feature instanceof CDS) {
+        } else if (feature instanceof CDS) {
             Transcript transcript = transcriptService.getTranscript(feature)
             exons = transcriptService.getSortedExons(transcript, true)
             cds = feature
@@ -1653,6 +1833,53 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         if (gsolFeature.description) {
             jsonFeature.put(FeatureStringEnum.DESCRIPTION.value, gsolFeature.description);
         }
+
+        if (gsolFeature instanceof SequenceAlteration) {
+
+            // TODO: optimize
+            // variant info (properties)
+            if (gsolFeature.getVariantInfo()) {
+                JSONArray variantInfoArray = new JSONArray()
+                gsolFeature.variantInfo.each { variantInfo ->
+                    JSONObject variantInfoObject = new JSONObject()
+                    variantInfoObject.put(FeatureStringEnum.TAG.value, variantInfo.tag)
+                    variantInfoObject.put(FeatureStringEnum.VALUE.value, variantInfo.value)
+                    variantInfoArray.add(variantInfoObject)
+                }
+                jsonFeature.put(FeatureStringEnum.VARIANT_INFO.value, variantInfoArray)
+            }
+
+            // TODO: optimize
+            JSONArray alternateAllelesArray = new JSONArray()
+            gsolFeature.alleles.each { allele ->
+                JSONObject alleleObject = new JSONObject()
+                alleleObject.put(FeatureStringEnum.BASES.value, allele.bases)
+//                if (allele.alleleFrequency) {
+//                    alternateAlleleObject.put(FeatureStringEnum.ALLELE_FREQUENCY.value, String.valueOf(allele.alleleFrequency))
+//                }
+//                if (allele.provenance) {
+//                    alternateAlleleObject.put(FeatureStringEnum.PROVENANCE.value, allele.provenance);
+//                }
+                if (allele.alleleInfo) {
+                    JSONArray alleleInfoArray = new JSONArray()
+                    allele.alleleInfo.each { alleleInfo ->
+                        JSONObject alleleInfoObject = new JSONObject()
+                        alleleInfoObject.put(FeatureStringEnum.TAG.value, alleleInfo.tag)
+                        alleleInfoObject.put(FeatureStringEnum.VALUE.value, alleleInfo.value)
+                        alleleInfoArray.add(alleleInfoObject)
+                    }
+                    alleleObject.put(FeatureStringEnum.ALLELE_INFO.value, alleleInfoArray)
+                }
+                if(allele.reference) {
+                    jsonFeature.put(FeatureStringEnum.REFERENCE_ALLELE.value, alleleObject)
+                }
+                else {
+                    alternateAllelesArray.add(alleleObject)
+                }
+            }
+            jsonFeature.put(FeatureStringEnum.ALTERNATE_ALLELES.value, alternateAllelesArray)
+        }
+
         long start = System.currentTimeMillis();
         if (depth <= 1) {
             String finalOwnerString
@@ -1695,9 +1922,9 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         return jsonFeature;
     }
 
-    String generateOwnerString(Feature feature){
-        if(feature.owner){
-          return feature.owner.username
+    String generateOwnerString(Feature feature) {
+        if (feature.owner) {
+            return feature.owner.username
         }
         if (feature.owners) {
             String ownerString = ""
@@ -1716,35 +1943,38 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
      */
     @Timed
     JSONObject convertFeatureToJSON(Feature gsolFeature, boolean includeSequence = false) {
-        JSONObject jsonFeature = new JSONObject();
+        JSONObject jsonFeature = new JSONObject()
         if (gsolFeature.id) {
-            jsonFeature.put(FeatureStringEnum.ID.value, gsolFeature.id);
+            jsonFeature.put(FeatureStringEnum.ID.value, gsolFeature.id)
         }
-        jsonFeature.put(FeatureStringEnum.TYPE.value, generateJSONFeatureStringForType(gsolFeature.ontologyId));
-        jsonFeature.put(FeatureStringEnum.UNIQUENAME.value, gsolFeature.getUniqueName());
+        jsonFeature.put(FeatureStringEnum.TYPE.value, generateJSONFeatureStringForType(gsolFeature.ontologyId))
+        jsonFeature.put(FeatureStringEnum.UNIQUENAME.value, gsolFeature.getUniqueName())
         if (gsolFeature.getName() != null) {
-            jsonFeature.put(FeatureStringEnum.NAME.value, gsolFeature.getName());
+            jsonFeature.put(FeatureStringEnum.NAME.value, gsolFeature.getName())
         }
         if (gsolFeature.symbol) {
-            jsonFeature.put(FeatureStringEnum.SYMBOL.value, gsolFeature.symbol);
+            jsonFeature.put(FeatureStringEnum.SYMBOL.value, gsolFeature.symbol)
+        }
+        if (gsolFeature.status) {
+            jsonFeature.put(FeatureStringEnum.STATUS.value, gsolFeature.status.value)
         }
         if (gsolFeature.description) {
-            jsonFeature.put(FeatureStringEnum.DESCRIPTION.value, gsolFeature.description);
+            jsonFeature.put(FeatureStringEnum.DESCRIPTION.value, gsolFeature.description)
         }
 
-        long start = System.currentTimeMillis();
+        long start = System.currentTimeMillis()
         String finalOwnerString = generateOwnerString(gsolFeature)
-        jsonFeature.put(FeatureStringEnum.OWNER.value.toLowerCase(), finalOwnerString);
+        jsonFeature.put(FeatureStringEnum.OWNER.value.toLowerCase(), finalOwnerString)
 
-        long durationInMilliseconds = System.currentTimeMillis() - start;
+        long durationInMilliseconds = System.currentTimeMillis() - start
 
-        start = System.currentTimeMillis();
+        start = System.currentTimeMillis()
         if (gsolFeature.featureLocation) {
             Sequence sequence = gsolFeature.featureLocation.sequence
-            jsonFeature.put(FeatureStringEnum.SEQUENCE.value, sequence.name);
+            jsonFeature.put(FeatureStringEnum.SEQUENCE.value, sequence.name)
         }
 
-        durationInMilliseconds = System.currentTimeMillis() - start;
+        durationInMilliseconds = System.currentTimeMillis() - start
 
 
         start = System.currentTimeMillis();
@@ -1807,9 +2037,51 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         durationInMilliseconds = System.currentTimeMillis() - start;
         //log.debug "featloc ${durationInMilliseconds}"
 
-
         if (gsolFeature instanceof SequenceAlteration) {
-            SequenceAlteration sequenceAlteration = (SequenceAlteration) gsolFeature
+            JSONArray alternateAllelesArray = new JSONArray()
+            gsolFeature.alleles.each { allele ->
+                JSONObject alleleObject = new JSONObject()
+                alleleObject.put(FeatureStringEnum.BASES.value, allele.bases)
+//                if (allele.alleleFrequency) {
+//                    alternateAlleleObject.put(FeatureStringEnum.ALLELE_FREQUENCY.value, String.valueOf(allele.alleleFrequency))
+//                }
+//                if (allele.provenance) {
+//                    alternateAlleleObject.put(FeatureStringEnum.PROVENANCE.value, allele.provenance);
+//                }
+                if (allele.alleleInfo) {
+                    JSONArray alleleInfoArray = new JSONArray()
+                    allele.alleleInfo.each { alleleInfo ->
+                        JSONObject alleleInfoObject = new JSONObject()
+                        alleleInfoObject.put(FeatureStringEnum.TAG.value, alleleInfo.tag)
+                        alleleInfoObject.put(FeatureStringEnum.VALUE.value, alleleInfo.value)
+                        alleleInfoArray.add(alleleInfoObject)
+                    }
+                    alleleObject.put(FeatureStringEnum.ALLELE_INFO.value, alleleInfoArray)
+                }
+                if(allele.reference) {
+                    jsonFeature.put(FeatureStringEnum.REFERENCE_ALLELE.value, alleleObject)
+                }
+                else {
+                    alternateAllelesArray.add(alleleObject)
+                }
+            }
+
+            jsonFeature.put(FeatureStringEnum.ALTERNATE_ALLELES.value, alternateAllelesArray)
+
+            if (gsolFeature.variantInfo) {
+                JSONArray variantInfoArray = new JSONArray()
+                gsolFeature.variantInfo.each { variantInfo ->
+                    JSONObject variantInfoObject = new JSONObject()
+                    variantInfoObject.put(FeatureStringEnum.TAG.value, variantInfo.tag)
+                    variantInfoObject.put(FeatureStringEnum.VALUE.value, variantInfo.value)
+                    variantInfoArray.add(variantInfoObject)
+                }
+                jsonFeature.put(FeatureStringEnum.VARIANT_INFO.value, variantInfoArray)
+            }
+        }
+
+        if (gsolFeature instanceof SequenceAlterationArtifact) {
+            SequenceAlterationArtifact sequenceAlteration = (SequenceAlterationArtifact) gsolFeature
             if (sequenceAlteration.alterationResidue) {
                 jsonFeature.put(FeatureStringEnum.RESIDUES.value, sequenceAlteration.alterationResidue);
             }
@@ -1856,37 +2128,37 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 jsonPropertyTypeCv.put(FeatureStringEnum.NAME.value, FeatureStringEnum.FEATURE_PROPERTY.value)
                 jsonPropertyType.put(FeatureStringEnum.CV.value, jsonPropertyTypeCv)
 
-                jsonProperty.put(FeatureStringEnum.TYPE.value, jsonPropertyType);
-                jsonProperty.put(FeatureStringEnum.NAME.value, property.getTag());
-                jsonProperty.put(FeatureStringEnum.VALUE.value, property.getValue());
-                properties.put(jsonProperty);
+                jsonProperty.put(FeatureStringEnum.TYPE.value, jsonPropertyType)
+                jsonProperty.put(FeatureStringEnum.NAME.value, property.getTag())
+                jsonProperty.put(FeatureStringEnum.VALUE.value, property.getValue())
+                properties.put(jsonProperty)
             }
         }
 //        JSONObject ownerProperty = JSON.parse("{value: ${finalOwnerString}, type: {name: 'owner', cv: {name: 'feature_property'}}}") as JSONObject
 //        properties.put(ownerProperty)
 
 
-        Collection<DBXref> gsolFeatureDbxrefs = gsolFeature.getFeatureDBXrefs();
+        Collection<DBXref> gsolFeatureDbxrefs = gsolFeature.getFeatureDBXrefs()
         if (gsolFeatureDbxrefs) {
             JSONArray dbxrefs = new JSONArray();
-            jsonFeature.put(FeatureStringEnum.DBXREFS.value, dbxrefs);
+            jsonFeature.put(FeatureStringEnum.DBXREFS.value, dbxrefs)
             for (DBXref gsolDbxref : gsolFeatureDbxrefs) {
-                JSONObject dbxref = new JSONObject();
-                dbxref.put(FeatureStringEnum.ACCESSION.value, gsolDbxref.getAccession());
-                dbxref.put(FeatureStringEnum.DB.value, new JSONObject().put(FeatureStringEnum.NAME.value, gsolDbxref.getDb().getName()));
-                dbxrefs.put(dbxref);
+                JSONObject dbxref = new JSONObject()
+                dbxref.put(FeatureStringEnum.ACCESSION.value, gsolDbxref.getAccession())
+                dbxref.put(FeatureStringEnum.DB.value, new JSONObject().put(FeatureStringEnum.NAME.value, gsolDbxref.getDb().getName()))
+                dbxrefs.put(dbxref)
             }
         }
-        jsonFeature.put(FeatureStringEnum.DATE_LAST_MODIFIED.value, gsolFeature.lastUpdated.time);
-        jsonFeature.put(FeatureStringEnum.DATE_CREATION.value, gsolFeature.dateCreated.time);
-        return jsonFeature;
+        jsonFeature.put(FeatureStringEnum.DATE_LAST_MODIFIED.value, gsolFeature.lastUpdated.time)
+        jsonFeature.put(FeatureStringEnum.DATE_CREATION.value, gsolFeature.dateCreated.time)
+        return jsonFeature
     }
 
     JSONObject generateJSONFeatureStringForType(String ontologyId) {
         if (ontologyId == null) return null;
         JSONObject jsonObject = new JSONObject();
         def feature = generateFeatureForType(ontologyId)
-        String cvTerm = feature.hasProperty(FeatureStringEnum.ALTERNATECVTERM.value) ? feature.getProperty(FeatureStringEnum.ALTERNATECVTERM.value) : feature.cvTerm
+        String cvTerm = feature.cvTerm
 
         jsonObject.put(FeatureStringEnum.NAME.value, cvTerm)
 
@@ -1956,12 +2228,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
     def flipStrand(Feature feature) {
 
         for (FeatureLocation featureLocation in feature.featureLocations) {
-            featureLocation.strand = featureLocation.strand > 0 ? -1 : 1
+            featureLocation.strand = featureLocation.strand == Strand.POSITIVE.value ? Strand.NEGATIVE.value : Strand.POSITIVE.value
             featureLocation.save()
         }
 
         for (Feature childFeature : feature?.parentFeatureRelationships?.childFeature) {
-            flipStrand(childFeature);
+            flipStrand(childFeature)
         }
 
         feature.save()
@@ -2077,125 +2349,274 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
     @Transactional
     def handleDynamicIsoformOverlap(Transcript transcript) {
         // Get all transcripts that overlap transcript and verify if they have the proper parent gene assigned
-        List<Transcript> allOverlappingTranscripts = getTranscriptsWithOverlappingOrf(transcript)
+        ArrayList<Transcript> transcriptsToUpdate = new ArrayList<Transcript>()
+        List<Transcript> allOverlappingTranscripts = getOverlappingTranscripts(transcript)
         List<Transcript> allTranscriptsForCurrentGene = transcriptService.getTranscripts(transcriptService.getGene(transcript))
         List<Transcript> allTranscripts = (allOverlappingTranscripts + allTranscriptsForCurrentGene).unique()
-        List<Transcript> allSortedTranscripts = allTranscripts?.sort() { a, b -> a.featureLocation.fmin <=> b.featureLocation.fmin }
-        if (transcript.strand == Strand.POSITIVE.value) {
-            allSortedTranscripts = allTranscripts?.sort() { a, b -> a.featureLocation.fmin <=> b.featureLocation.fmin }
+        List<Transcript> allSortedTranscripts
+        // force null / 0 strand to be positive
+        // when getting the up-most strand, make sure to put matching transcript strands BEFORE unmatching strands
+        if (transcript.strand != Strand.NEGATIVE.value) {
+            allSortedTranscripts = allTranscripts?.sort() { a, b ->
+                a.strand <=> b.strand ?: a.featureLocation.fmin <=> b.featureLocation.fmin ?: a.name <=> b.name
+            }
         } else {
-            allSortedTranscripts = allTranscripts?.sort() { a, b -> b.featureLocation.fmax <=> a.featureLocation.fmax }
+            allSortedTranscripts = allTranscripts?.sort() { a, b ->
+                b.strand <=> a.strand ?: b.featureLocation.fmax <=> a.featureLocation.fmax ?: a.name <=> b.name
+            }
         }
+
+        // remove exceptions
+        List<Transcript> allSortedTranscriptsToCheck = new ArrayList<Transcript>()
+
+        allSortedTranscripts.each {
+            boolean safe = true
+            if (!checkForComment(it, MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE) && !checkForComment(it, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)) {
+                allSortedTranscriptsToCheck.add(it)
+            }
+        }
+
         // In a normal scenario, all sorted transcripts should have the same parent indicating no changes to be made.
-        // If there are transcripts that do overlap but do not have the same parent gene then these transcripts should 
+        // If there are transcripts that do overlap but do not have the same parent gene then these transcripts should
         // be merged to the 5' most transcript's gene.
-        // If there are transcripts that do not overlap but have the same parent gene then these transcripts should be 
+        // If there are transcripts that do not overlap but have the same parent gene then these transcripts should be
         // given a new, de-novo gene.
-        log.debug "allSortedTranscripts:${allSortedTranscripts.name}"
-        Transcript fivePrimeTranscript = allSortedTranscripts.get(0)
-        Gene fivePrimeGene = transcriptService.getGene(fivePrimeTranscript)
-        log.debug "5' Transcript: ${fivePrimeTranscript.name}"
-        log.debug "5' Gene: ${fivePrimeGene.name}"
-        allSortedTranscripts.remove(0)
-        ArrayList<Transcript> transcriptsToAssociate = new ArrayList<Transcript>()
-        ArrayList<Gene> genesToMerge = new ArrayList<Gene>()
-        ArrayList<Transcript> transcriptsToDissociate = new ArrayList<Transcript>()
-        ArrayList<Transcript> transcriptsToUpdate = new ArrayList<Transcript>()
+        log.debug "all sorted transcripts: ${allSortedTranscriptsToCheck.name}"
 
-        for (Transcript eachTranscript : allSortedTranscripts) {
-            if (eachTranscript && fivePrimeGene && overlapperService.overlaps(eachTranscript, fivePrimeGene)) {
-                if (transcriptService.getGene(eachTranscript).uniqueName != fivePrimeGene.uniqueName) {
-                    transcriptsToAssociate.add(eachTranscript)
-                    genesToMerge.add(transcriptService.getGene(eachTranscript))
-                }
-            } else {
-                if (transcriptService.getGene(eachTranscript).uniqueName == fivePrimeGene.uniqueName) {
-                    transcriptsToDissociate.add(eachTranscript)
-                }
-            }
-        }
+        if (allSortedTranscriptsToCheck.size() > 0) {
+            Transcript fivePrimeTranscript = allSortedTranscriptsToCheck.get(0)
+            Gene fivePrimeGene = transcriptService.getGene(fivePrimeTranscript)
+            log.debug "5' Transcript: ${fivePrimeTranscript.name}"
+            log.debug "5' Gene: ${fivePrimeGene.name}"
+            allSortedTranscriptsToCheck.remove(0)
+            ArrayList<Transcript> transcriptsToAssociate = new ArrayList<Transcript>()
+            ArrayList<Gene> genesToMerge = new ArrayList<Gene>()
+            ArrayList<Transcript> transcriptsToDissociate = new ArrayList<Transcript>()
 
-        log.debug "Transcripts to Associate: ${transcriptsToAssociate}"
-        log.debug "Transcripts to Dissociate: ${transcriptsToDissociate}"
-        transcriptsToUpdate.addAll(transcriptsToAssociate)
-        transcriptsToUpdate.addAll(transcriptsToDissociate)
-
-        if (transcriptsToAssociate.size() > 0) {
-            Gene mergedGene = mergeGeneEntities(fivePrimeGene, genesToMerge.unique())
-            for (Transcript eachTranscript in transcriptsToAssociate) {
-                Gene eachTranscriptParent = transcriptService.getGene(eachTranscript)
-                featureRelationshipService.removeFeatureRelationship(eachTranscriptParent, eachTranscript)
-                addTranscriptToGene(mergedGene, eachTranscript)
-                eachTranscript.name = nameService.generateUniqueName(eachTranscript, mergedGene.name)
-                eachTranscript.save()
-                if (eachTranscriptParent.parentFeatureRelationships.size() == 0) {
-                    ArrayList<FeatureProperty> featureProperties = eachTranscriptParent.featureProperties
-                    for (FeatureProperty fp : featureProperties) {
-                        featurePropertyService.deleteProperty(eachTranscriptParent, fp)
+            for (Transcript eachTranscript : allSortedTranscriptsToCheck) {
+                if (eachTranscript && fivePrimeGene && overlapperService.overlaps(eachTranscript, fivePrimeGene)) {
+                    if (transcriptService.getGene(eachTranscript).uniqueName != fivePrimeGene.uniqueName) {
+                        transcriptsToAssociate.add(eachTranscript)
+                        genesToMerge.add(transcriptService.getGene(eachTranscript))
                     }
-                    //eachTranscriptParent.delete()
-                    // replace a direct delete with the standard method
-                    Feature topLevelFeature = featureService.getTopLevelFeature(eachTranscriptParent)
-                    featureRelationshipService.deleteFeatureAndChildren(topLevelFeature)
-                }
-            }
-        }
-
-        if (transcriptsToDissociate.size() > 0) {
-            Transcript firstTranscript = null
-            for (Transcript eachTranscript in transcriptsToDissociate) {
-                if (firstTranscript == null) {
-                    firstTranscript = eachTranscript
-                    Gene newGene = new Gene(
-                            uniqueName: nameService.generateUniqueName(),
-                            name: nameService.generateUniqueName(fivePrimeGene)
-                    )
-
-                    firstTranscript.owners.each {
-                        newGene.addToOwners(it)
-                    }
-                    newGene.save(flush: true)
-
-                    FeatureLocation newGeneFeatureLocation = new FeatureLocation(
-                            feature: newGene,
-                            fmin: firstTranscript.fmin,
-                            fmax: firstTranscript.fmax,
-                            strand: firstTranscript.strand,
-                            sequence: firstTranscript.featureLocation.sequence,
-                            residueInfo: firstTranscript.featureLocation.residueInfo,
-                            locgroup: firstTranscript.featureLocation.locgroup,
-                            rank: firstTranscript.featureLocation.rank
-                    ).save(flush: true)
-                    newGene.addToFeatureLocations(newGeneFeatureLocation)
-                    featureRelationshipService.removeFeatureRelationship(transcriptService.getGene(firstTranscript), firstTranscript)
-                    addTranscriptToGene(newGene, firstTranscript)
-                    firstTranscript.name = nameService.generateUniqueName(firstTranscript, newGene.name)
-                    firstTranscript.save(flush: true)
-                    continue
-                }
-                if (eachTranscript && firstTranscript && overlapperService.overlaps(eachTranscript, firstTranscript)) {
-                    featureRelationshipService.removeFeatureRelationship(transcriptService.getGene(eachTranscript), eachTranscript)
-                    addTranscriptToGene(transcriptService.getGene(firstTranscript), eachTranscript)
-                    firstTranscript.name = nameService.generateUniqueName(firstTranscript, transcriptService.getGene(firstTranscript).name)
-                    firstTranscript.save(flush: true)
                 } else {
-                    throw new AnnotationException("Left behind transcript that doesn't overlap with any other transcripts")
+                    if (transcriptService.getGene(eachTranscript).uniqueName == fivePrimeGene.uniqueName) {
+                        transcriptsToDissociate.add(eachTranscript)
+                    }
+                }
+            }
+
+            log.debug "Transcripts to Associate: ${transcriptsToAssociate.name}"
+            log.debug "Transcripts to Dissociate: ${transcriptsToDissociate.name}"
+            transcriptsToUpdate.addAll(transcriptsToAssociate)
+            transcriptsToUpdate.addAll(transcriptsToDissociate)
+
+            if (transcriptsToAssociate) {
+                Gene mergedGene = mergeGeneEntities(fivePrimeGene, genesToMerge.unique())
+                log.debug "mergedGene: ${mergedGene.name}"
+                for (Transcript eachTranscript in transcriptsToAssociate) {
+                    Gene eachTranscriptParent = transcriptService.getGene(eachTranscript)
+                    featureRelationshipService.removeFeatureRelationship(eachTranscriptParent, eachTranscript)
+                    addTranscriptToGene(mergedGene, eachTranscript)
+                    eachTranscript.name = nameService.generateUniqueName(eachTranscript, mergedGene.name)
+                    eachTranscript.save()
+                    if (eachTranscriptParent.parentFeatureRelationships.size() == 0) {
+                        ArrayList<FeatureProperty> featureProperties = eachTranscriptParent.featureProperties
+                        for (FeatureProperty fp : featureProperties) {
+                            featurePropertyService.deleteProperty(eachTranscriptParent, fp)
+                        }
+                        //eachTranscriptParent.delete()
+                        // replace a direct delete with the standard method
+                        Feature topLevelFeature = featureService.getTopLevelFeature(eachTranscriptParent)
+                        featureRelationshipService.deleteFeatureAndChildren(topLevelFeature)
+                    }
+                }
+            }
+
+            if (transcriptsToDissociate) {
+                Transcript firstTranscript = null
+                for (Transcript eachTranscript in transcriptsToDissociate) {
+                    if (firstTranscript == null) {
+                        firstTranscript = eachTranscript
+                        Gene newGene = new Gene(
+                                uniqueName: nameService.generateUniqueName(),
+                                name: nameService.generateUniqueName(fivePrimeGene)
+                        )
+
+                        firstTranscript.owners.each {
+                            newGene.addToOwners(it)
+                        }
+                        newGene.save(flush: true)
+
+                        FeatureLocation newGeneFeatureLocation = new FeatureLocation(
+                                feature: newGene,
+                                fmin: firstTranscript.fmin,
+                                fmax: firstTranscript.fmax,
+                                strand: firstTranscript.strand,
+                                sequence: firstTranscript.featureLocation.sequence,
+                                residueInfo: firstTranscript.featureLocation.residueInfo,
+                                locgroup: firstTranscript.featureLocation.locgroup,
+                                rank: firstTranscript.featureLocation.rank
+                        ).save(flush: true)
+                        newGene.addToFeatureLocations(newGeneFeatureLocation)
+                        featureRelationshipService.removeFeatureRelationship(transcriptService.getGene(firstTranscript), firstTranscript)
+                        addTranscriptToGene(newGene, firstTranscript)
+                        firstTranscript.name = nameService.generateUniqueName(firstTranscript, newGene.name)
+                        firstTranscript.save(flush: true)
+                        continue
+                    }
+                    if (eachTranscript && firstTranscript && overlapperService.overlaps(eachTranscript, firstTranscript)) {
+                        featureRelationshipService.removeFeatureRelationship(transcriptService.getGene(eachTranscript), eachTranscript)
+                        addTranscriptToGene(transcriptService.getGene(firstTranscript), eachTranscript)
+                        firstTranscript.name = nameService.generateUniqueName(firstTranscript, transcriptService.getGene(firstTranscript).name)
+                        firstTranscript.save(flush: true)
+                    } else {
+                        throw new AnnotationException("Left behind transcript that doesn't overlap with any other transcripts")
+                    }
                 }
             }
         }
+
         return transcriptsToUpdate
     }
 
-    def getTranscriptsWithOverlappingOrf(Transcript transcript) {
+
+    /**
+     *
+     * @param feature
+     * @param gene
+     * @return
+     */
+    def associateFeatureToGene(Feature feature, Gene originalGene) {
+        log.debug "associateFeatureToGene: ${feature.name} -> ${originalGene.name}"
+        if(!singletonFeatureTypes.contains(feature.cvTerm)){
+            log.error("Feature type can not be associated with a gene with this method: ${feature.cvTerm}")
+            return
+        }
+        featureRelationshipService.addChildFeature(originalGene,feature)
+        // set max and min
+        if(feature.fmax > originalGene.fmax){
+           featureService.setFmax(originalGene,feature.fmax)
+        }
+        if(feature.fmin < originalGene.fmin){
+            featureService.setFmin(originalGene,feature.fmin)
+        }
+
+        if (checkForComment(feature, MANUALLY_DISSOCIATE_FEATURE_FROM_GENE)) {
+            featurePropertyService.deleteComment(feature, MANUALLY_DISSOCIATE_FEATURE_FROM_GENE)
+        }
+
+        featurePropertyService.addComment(feature, MANUALLY_ASSOCIATE_FEATURE_TO_GENE)
+        return feature
+    }
+
+    def dissociateFeatureFromGene(Feature feature,Gene gene) {
+        log.debug "dissociateFeatureFromGene: ${feature.name} -> ${gene.name}"
+        featureRelationshipService.removeFeatureRelationship(gene, feature)
+
+        if (checkForComment(feature, MANUALLY_ASSOCIATE_FEATURE_TO_GENE)) {
+            featurePropertyService.deleteComment(feature, MANUALLY_ASSOCIATE_FEATURE_TO_GENE)
+        }
+
+        featurePropertyService.addComment(gene, MANUALLY_DISSOCIATE_FEATURE_FROM_GENE)
+
+        if (featureRelationshipService.getChildren(gene).size() == 0) {
+            // check if original gene has any additional isoforms; if not then delete original gene
+            gene.delete()
+        }
+        else{
+            featureService.updateGeneBoundaries(gene)
+        }
+
+        // redo ?
+
+        featurePropertyService.addComment(feature, MANUALLY_DISSOCIATE_FEATURE_FROM_GENE)
+        return feature
+    }
+
+
+    def associateTranscriptToGene(Transcript transcript, Gene gene) {
+        log.debug "associateTranscriptToGene: ${transcript.name} -> ${gene.name}"
+        Gene originalGene = transcriptService.getGene(transcript)
+        log.debug "removing transcript ${transcript.name} from its own gene: ${originalGene.name}"
+        featureRelationshipService.removeFeatureRelationship(originalGene, transcript)
+        addTranscriptToGene(gene, transcript)
+        transcript.name = nameService.generateUniqueName(transcript, gene.name)
+        // check if original gene has any additional isoforms; if not then delete original gene
+        if (transcriptService.getTranscripts(originalGene).size() == 0) {
+            originalGene.delete()
+        }
+
+        if (checkForComment(transcript, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)) {
+            featurePropertyService.deleteComment(transcript, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)
+        }
+
+        featurePropertyService.addComment(transcript, MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE)
+        return transcript
+    }
+
+    def dissociateTranscriptFromGene(Transcript transcript) {
+        Gene gene = transcriptService.getGene(transcript)
+        log.debug "dissociateTranscriptFromGene: ${transcript.name} -> ${gene.name}"
+        featureRelationshipService.removeFeatureRelationship(gene, transcript)
+        Gene newGene
+        if (gene.cvTerm == Pseudogene.cvTerm) {
+            newGene = new Pseudogene(
+                    uniqueName: nameService.generateUniqueName(),
+                    name: nameService.generateUniqueName(gene)
+            ).save()
+        } else {
+            newGene = new Gene(
+                    uniqueName: nameService.generateUniqueName(),
+                    name: nameService.generateUniqueName(gene)
+            ).save()
+        }
+
+        log.debug "New gene name: ${newGene.name}"
+        transcript.owners.each {
+            newGene.addToOwners(it)
+        }
+
+        FeatureLocation newGeneFeatureLocation = new FeatureLocation(
+                feature: newGene,
+                fmin: transcript.fmin,
+                fmax: transcript.fmax,
+                strand: transcript.strand,
+                sequence: transcript.featureLocation.sequence,
+                residueInfo: transcript.featureLocation.residueInfo,
+                locgroup: transcript.featureLocation.locgroup,
+                rank: transcript.featureLocation.rank
+        ).save(flush: true)
+        newGene.addToFeatureLocations(newGeneFeatureLocation)
+
+        if (checkForComment(transcript, MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE)) {
+            featurePropertyService.deleteComment(transcript, MANUALLY_ASSOCIATE_TRANSCRIPT_TO_GENE)
+        }
+
+        featurePropertyService.addComment(newGene, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)
+
+        addTranscriptToGene(newGene, transcript)
+        transcript.name = nameService.generateUniqueName(transcript, newGene.name)
+
+        if (transcriptService.getTranscripts(gene).size() == 0) {
+            // check if original gene has any additional isoforms; if not then delete original gene
+            gene.delete()
+        }
+
+        featurePropertyService.addComment(transcript, MANUALLY_DISSOCIATE_TRANSCRIPT_FROM_GENE)
+        return transcript
+    }
+
+    def getOverlappingTranscripts(Transcript transcript) {
         ArrayList<Transcript> overlappingTranscripts = getOverlappingTranscripts(transcript.featureLocation)
         overlappingTranscripts.remove(transcript) // removing itself
-        ArrayList<Transcript> transcriptsWithOverlappingOrf = new ArrayList<Transcript>()
+        ArrayList<Transcript> transcriptsWithOverlapCriteria = new ArrayList<Transcript>()
         for (Transcript eachTranscript in overlappingTranscripts) {
             if (eachTranscript && transcript && overlapperService.overlaps(eachTranscript, transcript)) {
-                transcriptsWithOverlappingOrf.add(eachTranscript)
+                transcriptsWithOverlapCriteria.add(eachTranscript)
             }
         }
-        return transcriptsWithOverlappingOrf
+        return transcriptsWithOverlapCriteria
     }
 
     @Transactional
@@ -2240,8 +2661,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         def exonList = []
         if (feature instanceof Transcript) {
             exonList = transcriptService.getSortedExons(feature, true)
-        }
-        else if (feature instanceof CDS) {
+        } else if (feature instanceof CDS) {
             Transcript transcript = transcriptService.getTranscript(feature)
             exonList = transcriptService.getSortedExons(transcript, true)
         }
@@ -2257,7 +2677,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         return false
     }
 
-    String getResiduesWithAlterations(Feature feature, Collection<SequenceAlteration> sequenceAlterations = new ArrayList<>()) {
+    String getResiduesWithAlterations(Feature feature, Collection<SequenceAlterationArtifact> sequenceAlterations = new ArrayList<>()) {
         String residueString = null
         List<SequenceAlterationInContext> sequenceAlterationInContextList = new ArrayList<>()
         if (feature instanceof Transcript) {
@@ -2305,7 +2725,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 sequenceAlterationResidues = SequenceTranslationHandler.reverseComplementSequence(sequenceAlterationResidues);
             }
             // Insertions
-            if (sequenceAlteration.instanceOf == Insertion.canonicalName) {
+            if (sequenceAlteration.instanceOf == InsertionArtifact.canonicalName) {
                 if (feature.getFeatureLocation().getStrand() == -1) {
                     ++localCoordinate;
                 }
@@ -2313,7 +2733,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 currentOffset += sequenceAlterationResidues.length();
             }
             // Deletions
-            else if (sequenceAlteration.instanceOf == Deletion.canonicalName) {
+            else if (sequenceAlteration.instanceOf == DeletionArtifact.canonicalName) {
                 if (feature.getFeatureLocation().getStrand() == -1) {
                     residues.delete(localCoordinate + currentOffset - sequenceAlteration.alterationResidue.length() + 1,
                             localCoordinate + currentOffset + 1);
@@ -2324,7 +2744,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 currentOffset -= sequenceAlterationResidues.length();
             }
             // Substitions
-            else if (sequenceAlteration.instanceOf == Substitution.canonicalName) {
+            else if (sequenceAlteration.instanceOf == SubstitutionArtifact.canonicalName) {
                 int start = feature.getStrand() == -1 ? localCoordinate - (sequenceAlteration.alterationResidue.length() - 1) : localCoordinate;
                 residues.replace(start + currentOffset,
                         start + currentOffset + sequenceAlteration.alterationResidue.length(),
@@ -2335,26 +2755,26 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         return residues.toString();
     }
 
-    List<SequenceAlteration> getSequenceAlterationsForFeature(Feature feature) {
+    List<SequenceAlterationArtifact> getSequenceAlterationsForFeature(Feature feature) {
         int fmin = feature.fmin
         int fmax = feature.fmax
         Sequence sequence = feature.featureLocation.sequence
         sessionFactory.currentSession.flushMode = FlushMode.MANUAL
 
-        List<SequenceAlteration> sequenceAlterations = SequenceAlteration.executeQuery("select distinct sa from SequenceAlteration sa join sa.featureLocations fl where fl.fmin >= :fmin and fl.fmin <= :fmax or fl.fmax >= :fmin and fl.fmax <= :fmax and fl.sequence = :seqId", [fmin: fmin, fmax: fmax, seqId: sequence])
+        List<SequenceAlterationArtifact> sequenceAlterations = SequenceAlterationArtifact.executeQuery("select distinct sa from SequenceAlterationArtifact sa join sa.featureLocations fl where ((fl.fmin >= :fmin and fl.fmin <= :fmax) or (fl.fmax >= :fmin and fl.fmax <= :fmax)) and fl.sequence = :seqId", [fmin: fmin, fmax: fmax, seqId: sequence])
         sessionFactory.currentSession.flushMode = FlushMode.AUTO
 
         return sequenceAlterations
     }
 
 
-    List<SequenceAlterationInContext> getSequenceAlterationsInContext(Feature feature, Collection<SequenceAlteration> sequenceAlterations) {
+    List<SequenceAlterationInContext> getSequenceAlterationsInContext(Feature feature, Collection<SequenceAlterationArtifact> sequenceAlterations) {
         List<SequenceAlterationInContext> sequenceAlterationInContextList = new ArrayList<>()
         if (!(feature instanceof CDS) && !(feature instanceof Transcript)) {
             // for features that are not instance of CDS or Transcript (ex. Single exons)
             int featureFmin = feature.fmin
             int featureFmax = feature.fmax
-            for (SequenceAlteration eachSequenceAlteration : sequenceAlterations) {
+            for (SequenceAlterationArtifact eachSequenceAlteration : sequenceAlterations) {
                 int alterationFmin = eachSequenceAlteration.fmin
                 int alterationFmax = eachSequenceAlteration.fmax
                 SequenceAlterationInContext sa = new SequenceAlterationInContext()
@@ -2362,12 +2782,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                     // alteration is within the generic feature
                     sa.fmin = alterationFmin
                     sa.fmax = alterationFmax
-                    if (eachSequenceAlteration instanceof Insertion) {
-                        sa.instanceOf = Insertion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Deletion) {
-                        sa.instanceOf = Deletion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Substitution) {
-                        sa.instanceOf = Substitution.canonicalName
+                    if (eachSequenceAlteration instanceof InsertionArtifact) {
+                        sa.instanceOf = InsertionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                        sa.instanceOf = DeletionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                        sa.instanceOf = SubstitutionArtifact.canonicalName
                     }
                     sa.type = 'within'
                     sa.strand = eachSequenceAlteration.strand
@@ -2381,12 +2801,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                     int difference = alterationFmax - featureFmax
                     sa.fmin = alterationFmin
                     sa.fmax = Math.min(featureFmax, alterationFmax)
-                    if (eachSequenceAlteration instanceof Insertion) {
-                        sa.instanceOf = Insertion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Deletion) {
-                        sa.instanceOf = Deletion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Substitution) {
-                        sa.instanceOf = Substitution.canonicalName
+                    if (eachSequenceAlteration instanceof InsertionArtifact) {
+                        sa.instanceOf = InsertionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                        sa.instanceOf = DeletionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                        sa.instanceOf = SubstitutionArtifact.canonicalName
                     }
                     sa.type = 'exon-to-intron'
                     sa.strand = eachSequenceAlteration.strand
@@ -2400,12 +2820,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                     int difference = featureFmin - alterationFmin
                     sa.fmin = Math.max(featureFmin, alterationFmin)
                     sa.fmax = alterationFmax
-                    if (eachSequenceAlteration instanceof Insertion) {
-                        sa.instanceOf = Insertion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Deletion) {
-                        sa.instanceOf = Deletion.canonicalName
-                    } else if (eachSequenceAlteration instanceof Substitution) {
-                        sa.instanceOf = Substitution.canonicalName
+                    if (eachSequenceAlteration instanceof InsertionArtifact) {
+                        sa.instanceOf = InsertionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                        sa.instanceOf = DeletionArtifact.canonicalName
+                    } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                        sa.instanceOf = SubstitutionArtifact.canonicalName
                     }
                     sa.type = 'intron-to-exon'
                     sa.strand = eachSequenceAlteration.strand
@@ -2417,12 +2837,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 }
             }
         } else {
-            List<Exon> exonList = feature instanceof CDS ? transcriptService.getSortedExons(transcriptService.getTranscript(feature),true) : transcriptService.getSortedExons( (Transcript) feature, true)
+            List<Exon> exonList = feature instanceof CDS ? transcriptService.getSortedExons(transcriptService.getTranscript(feature), true) : transcriptService.getSortedExons((Transcript) feature, true)
             for (Exon exon : exonList) {
                 int exonFmin = exon.fmin
                 int exonFmax = exon.fmax
 
-                for (SequenceAlteration eachSequenceAlteration : sequenceAlterations) {
+                for (SequenceAlterationArtifact eachSequenceAlteration : sequenceAlterations) {
                     int alterationFmin = eachSequenceAlteration.fmin
                     int alterationFmax = eachSequenceAlteration.fmax
                     SequenceAlterationInContext sa = new SequenceAlterationInContext()
@@ -2430,12 +2850,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                         // alteration is within exon
                         sa.fmin = alterationFmin
                         sa.fmax = alterationFmax
-                        if (eachSequenceAlteration instanceof Insertion) {
-                            sa.instanceOf = Insertion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Deletion) {
-                            sa.instanceOf = Deletion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Substitution) {
-                            sa.instanceOf = Substitution.canonicalName
+                        if (eachSequenceAlteration instanceof InsertionArtifact) {
+                            sa.instanceOf = InsertionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                            sa.instanceOf = DeletionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                            sa.instanceOf = SubstitutionArtifact.canonicalName
                         }
                         sa.type = 'within'
                         sa.strand = eachSequenceAlteration.strand
@@ -2449,12 +2869,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                         int difference = alterationFmax - exonFmax
                         sa.fmin = alterationFmin
                         sa.fmax = Math.min(exonFmax, alterationFmax)
-                        if (eachSequenceAlteration instanceof Insertion) {
-                            sa.instanceOf = Insertion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Deletion) {
-                            sa.instanceOf = Deletion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Substitution) {
-                            sa.instanceOf = Substitution.canonicalName
+                        if (eachSequenceAlteration instanceof InsertionArtifact) {
+                            sa.instanceOf = InsertionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                            sa.instanceOf = DeletionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                            sa.instanceOf = SubstitutionArtifact.canonicalName
                         }
                         sa.type = 'exon-to-intron'
                         sa.strand = eachSequenceAlteration.strand
@@ -2468,12 +2888,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                         int difference = exonFmin - alterationFmin
                         sa.fmin = Math.max(exonFmin, alterationFmin)
                         sa.fmax = alterationFmax
-                        if (eachSequenceAlteration instanceof Insertion) {
-                            sa.instanceOf = Insertion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Deletion) {
-                            sa.instanceOf = Deletion.canonicalName
-                        } else if (eachSequenceAlteration instanceof Substitution) {
-                            sa.instanceOf = Substitution.canonicalName
+                        if (eachSequenceAlteration instanceof InsertionArtifact) {
+                            sa.instanceOf = InsertionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof DeletionArtifact) {
+                            sa.instanceOf = DeletionArtifact.canonicalName
+                        } else if (eachSequenceAlteration instanceof SubstitutionArtifact) {
+                            sa.instanceOf = SubstitutionArtifact.canonicalName
                         }
                         sa.type = 'intron-to-exon'
                         sa.strand = eachSequenceAlteration.strand
@@ -2493,9 +2913,9 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         Transcript transcript = (Transcript) featureRelationshipService.getParentForFeature(feature, Transcript.ontologyId)
         List<SequenceAlterationInContext> alterations = new ArrayList<>()
         if (feature instanceof CDS) {
-            List<SequenceAlteration> frameshiftsAsAlterations = getFrameshiftsAsAlterations(transcript)
+            List<SequenceAlterationArtifact> frameshiftsAsAlterations = getFrameshiftsAsAlterations(transcript)
             if (frameshiftsAsAlterations.size() > 0) {
-                for (SequenceAlteration frameshifts : frameshiftsAsAlterations) {
+                for (SequenceAlterationArtifact frameshifts : frameshiftsAsAlterations) {
                     SequenceAlterationInContext sa = new SequenceAlterationInContext()
                     sa.fmin = frameshifts.fmin
                     sa.fmax = frameshifts.fmax
@@ -2542,32 +2962,32 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 coordinateInContext = convertSourceCoordinateToLocalCoordinateForCDS(feature, alteration.fmin)
             } else if (feature instanceof Transcript) {
                 // if feature is Transcript then calling convertSourceCoordinateToLocalCoordinateForTranscript
-                coordinateInContext = convertSourceCoordinateToLocalCoordinateForTranscript( (Transcript) feature, alteration.fmin)
+                coordinateInContext = convertSourceCoordinateToLocalCoordinateForTranscript((Transcript) feature, alteration.fmin)
             } else {
                 // calling convertSourceCoordinateToLocalCoordinate
                 coordinateInContext = convertSourceCoordinateToLocalCoordinate(feature, alteration.fmin)
             }
 
             if (feature.strand == Strand.NEGATIVE.value) {
-                if (coordinateInContext <= localCoordinate && alteration.instanceOf == Deletion.canonicalName) {
+                if (coordinateInContext <= localCoordinate && alteration.instanceOf == DeletionArtifact.canonicalName) {
                     deletionOffset += alterationResidueLength
                 }
-                if ((coordinateInContext - alterationResidueLength) - 1 <= localCoordinate && alteration.instanceOf == Insertion.canonicalName) {
+                if ((coordinateInContext - alterationResidueLength) - 1 <= localCoordinate && alteration.instanceOf == InsertionArtifact.canonicalName) {
                     insertionOffset += alterationResidueLength
                 }
-                if ((localCoordinate - coordinateInContext) - 1 < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration.instanceOf == Insertion.canonicalName) {
+                if ((localCoordinate - coordinateInContext) - 1 < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration.instanceOf == InsertionArtifact.canonicalName) {
                     insertionOffset -= (alterationResidueLength - (localCoordinate - coordinateInContext - 1))
 
                 }
 
             } else {
-                if (coordinateInContext < localCoordinate && alteration.instanceOf == Deletion.canonicalName) {
+                if (coordinateInContext < localCoordinate && alteration.instanceOf == DeletionArtifact.canonicalName) {
                     deletionOffset += alterationResidueLength
                 }
-                if ((coordinateInContext + alterationResidueLength) <= localCoordinate && alteration.instanceOf == Insertion.canonicalName) {
+                if ((coordinateInContext + alterationResidueLength) <= localCoordinate && alteration.instanceOf == InsertionArtifact.canonicalName) {
                     insertionOffset += alterationResidueLength
                 }
-                if ((localCoordinate - coordinateInContext) < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration.instanceOf == Insertion.canonicalName) {
+                if ((localCoordinate - coordinateInContext) < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration.instanceOf == InsertionArtifact.canonicalName) {
                     insertionOffset += localCoordinate - coordinateInContext
                 }
             }
@@ -2589,7 +3009,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
     /* convert an input local coordinate to a local coordinate that incorporates sequence alterations */
 
-    int convertSourceToModifiedLocalCoordinate(Feature feature, Integer localCoordinate, List<SequenceAlteration> alterations = new ArrayList<>()) {
+    int convertSourceToModifiedLocalCoordinate(Feature feature, Integer localCoordinate, List<SequenceAlterationArtifact> alterations = new ArrayList<>()) {
         log.debug "convertSourceToModifiedLocalCoordinate"
 
         if (alterations.size() == 0) {
@@ -2598,7 +3018,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         }
 
 
-        Collections.sort(alterations, new FeaturePositionComparator<SequenceAlteration>());
+        Collections.sort(alterations, new FeaturePositionComparator<SequenceAlterationArtifact>());
         if (feature.getFeatureLocation().getStrand() == -1) {
             Collections.reverse(alterations);
         }
@@ -2606,7 +3026,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         int deletionOffset = 0
         int insertionOffset = 0
 
-        for (SequenceAlteration alteration : alterations) {
+        for (SequenceAlterationArtifact alteration : alterations) {
             int alterationResidueLength = alteration.alterationResidue.length()
             int coordinateInContext = convertSourceCoordinateToLocalCoordinate(feature, alteration.fmin);
 
@@ -2618,30 +3038,30 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             if (feature.strand == Strand.NEGATIVE.value) {
                 coordinateInContext = feature.featureLocation.calculateLength() - coordinateInContext
                 log.debug "Checking negative insertion ${coordinateInContext} ${localCoordinate} ${(coordinateInContext - alterationResidueLength) - 1}"
-                if (coordinateInContext <= localCoordinate && alteration instanceof Deletion) {
+                if (coordinateInContext <= localCoordinate && alteration instanceof DeletionArtifact) {
                     log.debug "Processing negative deletion"
                     deletionOffset += alterationResidueLength
                 }
-                if ((coordinateInContext - alterationResidueLength) - 1 <= localCoordinate && alteration instanceof Insertion) {
+                if ((coordinateInContext - alterationResidueLength) - 1 <= localCoordinate && alteration instanceof InsertionArtifact) {
                     log.debug "Processing negative insertion ${coordinateInContext} ${localCoordinate} ${(coordinateInContext - alterationResidueLength) - 1}"
                     insertionOffset += alterationResidueLength
                 }
-                if ((localCoordinate - coordinateInContext) - 1 < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration instanceof Insertion) {
+                if ((localCoordinate - coordinateInContext) - 1 < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration instanceof InsertionArtifact) {
                     log.debug "Processing negative insertion pt 2"
                     insertionOffset -= (alterationResidueLength - (localCoordinate - coordinateInContext - 1))
 
                 }
 
             } else {
-                if (coordinateInContext < localCoordinate && alteration instanceof Deletion) {
+                if (coordinateInContext < localCoordinate && alteration instanceof DeletionArtifact) {
                     log.debug "Processing positive deletion"
                     deletionOffset += alterationResidueLength
                 }
-                if ((coordinateInContext + alterationResidueLength) <= localCoordinate && alteration instanceof Insertion) {
+                if ((coordinateInContext + alterationResidueLength) <= localCoordinate && alteration instanceof InsertionArtifact) {
                     log.debug "Processing positive insertion"
                     insertionOffset += alterationResidueLength
                 }
-                if ((localCoordinate - coordinateInContext) < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration instanceof Insertion) {
+                if ((localCoordinate - coordinateInContext) < alterationResidueLength && (localCoordinate - coordinateInContext) >= 0 && alteration instanceof InsertionArtifact) {
                     log.debug "Processing positive insertion pt 2"
                     insertionOffset += localCoordinate - coordinateInContext
                 }
@@ -2657,22 +3077,23 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
     def changeAnnotationType(JSONObject inputObject, Feature feature, Sequence sequence, User user, String type) {
         String uniqueName = feature.uniqueName
-        String originalType = feature.alternateCvTerm ? feature.alternateCvTerm : feature.cvTerm
+        String originalType = feature.cvTerm
         JSONObject currentFeatureJsonObject = convertFeatureToJSON(feature)
         Feature newFeature = null
 
         String topLevelFeatureType = null
-        if (type == Transcript.alternateCvTerm) {
-            topLevelFeatureType = Pseudogene.alternateCvTerm
+        if (type == Transcript.cvTerm) {
+            topLevelFeatureType = Pseudogene.cvTerm
         } else if (singletonFeatureTypes.contains(type)) {
             topLevelFeatureType = type
         } else {
-            topLevelFeatureType = Gene.alternateCvTerm
+            topLevelFeatureType = Gene.cvTerm
         }
 
         Gene parentGene = null
         String parentGeneSymbol = null
         String parentGeneDescription = null
+        Status parentStatus = null
         Set<DBXref> parentGeneDbxrefs = null
         Set<FeatureProperty> parentGeneFeatureProperties = null
         List<Transcript> transcriptList = []
@@ -2680,6 +3101,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         if (feature instanceof Transcript) {
             parentGene = transcriptService.getGene((Transcript) feature)
             parentGeneSymbol = parentGene.symbol
+            parentStatus = parentGene.status
             parentGeneDescription = parentGene.description
             parentGeneDbxrefs = parentGene.featureDBXrefs
             parentGeneFeatureProperties = parentGene.featureProperties
@@ -2709,7 +3131,6 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             }
         }
 
-
         if (!singletonFeatureTypes.contains(originalType) && rnaFeatureTypes.contains(type)) {
             // *RNA to *RNA
             if (transcriptList.size() == 1) {
@@ -2721,7 +3142,7 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
             log.debug "Converting ${originalType} to ${type}"
             Transcript transcript = null
-            if (type == MRNA.alternateCvTerm) {
+            if (type == MRNA.cvTerm) {
                 // *RNA to mRNA
                 transcript = generateTranscript(currentFeatureJsonObject, sequence, true)
                 setLongestORF(transcript)
@@ -2734,6 +3155,9 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             Gene newGene = transcriptService.getGene(transcript)
             newGene.symbol = parentGeneSymbol
             newGene.description = parentGeneDescription
+            if(parentStatus){
+                newGene.status = new Status(value: parentStatus.value,feature:newGene).save()
+            }
 
             parentGeneDbxrefs.each { it ->
                 DBXref dbxref = new DBXref(
@@ -2748,7 +3172,12 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
             parentGeneFeatureProperties.each { it ->
                 if (it instanceof Comment) {
                     featurePropertyService.addComment(newGene, it.value)
-                } else {
+                }
+                else
+                if (it instanceof Status) {
+                  // do nothing
+                }
+                else {
                     FeatureProperty fp = new FeatureProperty(
                             type: it.type,
                             value: it.value,
@@ -2831,12 +3260,11 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                     // Scenario IIIa - use the 'parent' attribute, if provided, from feature JSON
                     jsonGene = JSON.parse(jsonFeature.getString(FeatureStringEnum.PARENT.value)) as JSONObject
                     jsonGene.put(FeatureStringEnum.CHILDREN.value, new JSONArray().put(jsonFeature))
-                }
-                else {
+                } else {
                     // Scenario IIIb - use the current mRNA's featurelocation for gene
                     jsonGene.put(FeatureStringEnum.CHILDREN.value, new JSONArray().put(jsonFeature))
                     jsonGene.put(FeatureStringEnum.LOCATION.value, jsonFeature.getJSONObject(FeatureStringEnum.LOCATION.value))
-                    String cvTermString = jsonFeature.get(FeatureStringEnum.TYPE.value).name == Transcript.alternateCvTerm ? Pseudogene.alternateCvTerm : Gene.alternateCvTerm
+                    String cvTermString = jsonFeature.get(FeatureStringEnum.TYPE.value).name == Transcript.cvTerm ? Pseudogene.cvTerm : Gene.cvTerm
                     jsonGene.put(FeatureStringEnum.TYPE.value, convertCVTermToJSON(FeatureStringEnum.CV.value, cvTermString))
                 }
 
@@ -2844,18 +3272,14 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
                 if (jsonGene.has(FeatureStringEnum.NAME.value)) {
                     geneName = jsonGene.getString(FeatureStringEnum.NAME.value)
                     log.debug "jsonGene already has 'name': ${geneName}"
-                }
-                else if (jsonFeature.has(FeatureStringEnum.PARENT_NAME.value)) {
+                } else if (jsonFeature.has(FeatureStringEnum.PARENT_NAME.value)) {
                     String principalName = jsonFeature.getString(FeatureStringEnum.PARENT_NAME.value)
                     geneName = nameService.makeUniqueGeneName(sequence.organism, principalName, false)
                     log.debug "jsonFeature has 'parent_name' attribute; using ${principalName} to generate ${geneName}"
-                }
-                else
-                if (jsonFeature.has(FeatureStringEnum.NAME.value)) {
+                } else if (jsonFeature.has(FeatureStringEnum.NAME.value)) {
                     geneName = jsonFeature.getString(FeatureStringEnum.NAME.value)
                     log.debug "jsonGene already has 'name': ${geneName}"
-                }
-                else {
+                } else {
                     geneName = nameService.makeUniqueGeneName(sequence.organism, sequence.name, false)
                     log.debug "Making a new unique gene name: ${geneName}"
                 }
@@ -2926,8 +3350,8 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
 
             setOwner(feature, user);
             feature.save(insert: true, flush: true)
-            if (jsonFeature.get(FeatureStringEnum.TYPE.value).name == Gene.alternateCvTerm ||
-                    jsonFeature.get(FeatureStringEnum.TYPE.value).name == Pseudogene.alternateCvTerm) {
+            if (jsonFeature.get(FeatureStringEnum.TYPE.value).name == Gene.cvTerm ||
+                    jsonFeature.get(FeatureStringEnum.TYPE.value).name == Pseudogene.cvTerm) {
                 Transcript transcript = transcriptService.getTranscripts(feature).iterator().next()
                 setOwner(transcript, user);
                 removeExonOverlapsAndAdjacencies(transcript)
@@ -2967,5 +3391,16 @@ public void setTranslationEnd(Transcript transcript, int translationEnd) {
         ).save()
         featurePropertyService.addProperty(feature, featureProperty)
         feature.save()
+    }
+
+    def checkForComment(Feature feature, String value) {
+        def comments = featurePropertyService.getComments(feature)
+        for (FeatureProperty comment : comments) {
+            if (comment.value == value) {
+                return true
+            }
+        }
+
+        return false
     }
 }

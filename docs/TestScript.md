@@ -2,25 +2,6 @@
 
 Note: The following steps are meant for testing purposes only, not for training manual annotators.
 
-## Apollo General Information
-- The Apollo website:
-http://GenomeArchitect.org
-- The article describing Apollo can be found at:  
-http://genomebiology.com/2013/14/8/R93/abstract
-- The public Apollo honey bee (_Apis mellifera_) demonstration site is available at: 
-http://genomearchitect.org/demo/
-- You may find our user guide at:
-http://genomearchitect.org/users-guide/
-- You may find a few slide presentations on the 'How Tos' of Apollo at:
-http://www.slideshare.net/MonicaMunozTorres/
-- Apollo at GMOD page: 
-http://www.gmod.org/wiki/WebApollo 
-- Apollo installation and configuration guide
-http://genomearchitect.readthedocs.io/en/latest/
-
-
-## Testing an Apollo Instance
-
 ### A) Testing functions in the main window
 
 1) Switch between organisms:
@@ -69,7 +50,7 @@ http://genomearchitect.readthedocs.io/en/latest/
 
 2.3) View
    
-   Check the ability to set and clear highlights, show plus/minus strands, show track label, resize quantitative tracks, color by CDS, and changing the color scheme (dark or light).
+   Check the ability to set and clear highlights, show plus/minus strands, show track label, resize quantitative tracks, color by CDS, and changing the color scheme (dark, light, grid, no grid).
 
 2.4) Tools
 
@@ -89,11 +70,17 @@ http://genomearchitect.readthedocs.io/en/latest/
 
 3.1) Search for an indexed gene (e.g. in honey bee demo CSN2_DANRE (it's on Group1.37:152689..155265)) by typing the gene name on the search box in the middle of the navigation bar in the main window. 
 
-4) Drag and drop a gene onto the “User-created Annotations” (U-cA) area.
+4) Drag and drop a gene onto the “User-created Annotations” (U-cA) area. 
+
+4.1) Drag and drop an HTML BAM read to the “User-created Annotations” (U-cA) area.
+
+4.2) Drag and drop an HTML BAM split-read to the “User-created Annotations” (U-cA) area (in volvox data under HTML Alignment).
+
+4.1) Drag and drop an Canvas BAM split-read to the “User-created Annotations” (U-cA) area (in volvox data under Canvas Alignment).
 
 5) Zoom in (double click) to inspect last exon (5'-3') of the displayed gene and:
 
-5.1) Change intron/exon boundary (dragging)
+5.1) Change intron / exon boundary (dragging)
 
 5.2) Check the recalculated ORF
 
@@ -123,7 +110,7 @@ http://genomearchitect.readthedocs.io/en/latest/
 
 7.1.6) Show _History_ from the right click menu, and test the ability to revert to any of the previous versions of the feature by clicking on the arrow buttons to the right of each version.
 
-7.1.7) Annotation Information Editor: Name, Symbol, DBXRefs, Comments, Gene Ontology IDs, and PubMed IDs.
+7.1.7) Annotation Information Editor: Name, Symbol, DBXRefs, Comments, Gene Ontology IDs (when present again), and PubMed IDs.
 
 7.1.8) Use both the genomic feature you are currently annotating and a genomic feature from one of the evidence tracks to modify the exon and UTR boundaries for the annotation in the _User-created Annotations_ area using the following operations from the right-click menu: _Set as 3' end_, _Set as 5' end_, _Set both ends_.
 
@@ -131,10 +118,12 @@ http://genomearchitect.readthedocs.io/en/latest/
 
 7.1.10) Change the annotation type from the right-click menu and check _Undo_ / _Redo_ operations on this annotation.
 
+7.1.11) Create two isoforms for a single gene.  Right-click on one of the isoforms and select "Disassociate Transcript from Gene" and verify that the transcript is now part of its own gene. 
+Select both isoforms and select "Associate Transcript with Gene".   Verify that the gene now belongs to both isoforms.
+
 8) Check that the URL can be used for sharing work (on a different browser) for both logged in and logged out (JBrowse only) mode: bring up different browser window and paste the shared URL. Check real-time update by dragging and dropping another exon to the model on the left (same strand); check that “non-canonical boundaries” warning sign appears as appropriate. Last, delete an exon, Redo/Undo to test.  
 
 9) Check that you are able to export data from the _User-created Annotations_ track using the drop down menu option (from the track label) and choosing the 'Save track data' option. Here check both GFF3 (with and without FASTA) and FASTA files (CDS, cDNA, peptide, and highlighted region (note: you must first highlight a region to test this)).
-
 
 ### B) Testing the _Annotator Panel_
 
@@ -157,9 +146,22 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 13.1.2.2) Repeat for pseudogenes and non-coding RNAs.
 
-13.1.2.3) Reveal the _Details_ for Repeat Region and Transposable Element to display metadate for each annotation.  
+13.1.2.3) Reveal the _Details_ for Repeat Region and Transposable Element to display metadate for each annotation and demonstrate editing details.
 
 13.1.3) Find an annotation using the _Annotation Name_ search box, and use the filters from the drop down menus. 
+
+13.1.4) Test that you can delete an annotation from the Details menu.
+
+13.1.5) Check that when selecting a Gene that the GO tab appears.
+
+13.1.5.1) Check that you can add three GO Annotations for the gene.
+
+13.1.5.2) Check that you can edit a GO Annotation.
+
+13.1.5.3) Check that you can delete a GO Annotation.
+
+13.1.5.4) Check that you can filter GO Annotations by clicking the checkbox at the top.
+
 
 13.2) Tracks
 
@@ -169,7 +171,7 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 13.2.3) Check that clicking on the show JBrowse tracks selector icons properly toggles the JBrowse tracks.
 
-13.2.3.1) Click on the track panel and confirm that doing and undoing the toggle switch toggles the JBrowse track view and the main panel toggle icon.
+13.2.3.1) Click on the track panel and confirm that selecting and unselecting the JBrowse track view and the main panel toggle icon.  
 
 13.2.3.2) Click on the main panel toggle button and confirm that doing and undoing the toggle switch toggles the JBrowse track view and switches the track panel toggle as well.
 
@@ -177,11 +179,19 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 13.2.3.4) Test as Admin and non-Admin for one case to confirm layout.
 
+13.2.3.5) Test a set of track categories can handle opening and closing, searching, and select / unselect all.
+
+13.2.4) Check that as administrator that you can both add and remove multiple track types via the upload and that removed track contents are deleted.
+
 13.3) Ref Sequence
 
 13.3.1) Use the search box to find a scaffold / chromosome and navigate to it by double clicking on one of them. 
 
 13.3.2) Test that you can export GFF3, FASTA, and CHADO files for one or more selected scaffolds at a time. 
+
+13.3.3) Test that you can delete all annotations from 2 or more sequences.
+
+13.3.4) Check that you export GO Annotations as a GPAD 2 file.
 
 13.4) Organism
 
@@ -189,11 +199,24 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 13.4.2) Test that you can switch between organisms by double clicking on one of them. 
 
+13.4.3) Test that you duplicate an organism and obsolete the duplicate and that the show obsolete works correctly.
+
+13.4.4) Delete the duplicated organism
+
+13.4.5) Check that you can add an organism by uploading a FASTA file and add / remove tracks to that organism
+
+13.4.6) Check that when removing a temporary organism that all associated files are also removed.
+
 13.5) Users 
 
 13.5.1) Create a new user and grant read, write, and publish permissions.
 
 13.5.2) Test altering information and permissions and group membership for users. 
+
+13.5.3) Make a user 'inactive' and confirm that they are listed as such and they have no permissions and they only show up when "Show inactive" is selected.
+
+13.5.3) Make an 'inactive' user active and assign them permissions.
+
 
 13.6) Groups
 
@@ -218,7 +241,7 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 13.9.2) Confirm that clicking on a logged in link option in the main window when _logged out_ will take you to the login screen and then redirect you to the proper _Annotator Panel_ view when approved with the same selections in-tact.
 
-### C) Testing Integration
+### C) Testing Security Linking
 
 14) Test security redirect 
 
@@ -250,9 +273,70 @@ boundary using the arrows in the display.  Modify a number explicitly and click 
 
 15.3.3) Run ```add_features_from_gff3_to_annotations.pl``` against the same organism and user and confirm that it works. ```./add_features_from_gff3_to_annotations.pl -U http://testserver.gov/Apollo-staging -u adminuser@admin.gov -p adminpassword -i Annotations-chrI.gff3  --organism SampleOrganism```
 
-15.3.4) Run ```delete_annotations_from_organism.groovy``` and confirm that annotations from this organism have been removed.  ```groovy delete_annotations_from_organism.groovy -adminusername adminuser@admin.gov -adminpassword adminpassword -destinationurl http://testserver.gov/Apollo-staging -organismname SampleOrganism
+15.3.4) Run ```delete_annotations_from_organism.groovy``` and confirm that annotations from this organism have been removed.  `groovy delete_annotations_from_organism.groovy -adminusername adminuser@admin.gov -adminpassword adminpassword -destinationurl http://testserver.gov/Apollo-staging -organismname SampleOrganism`
+
+
+### E) Testing Variation Annotation
+
+16) Go to a Human or Volvox organism (with variant data, preferably HTMLVariant and CanvasVariant tracks). 
+
+16.1) Right-click on a HTML Annotation and "Create Annotation" and confirm that the same SNV has been added graphically.
+
+16.1.2) Confirm that you can drag up an HTML Variant Annotation.
+
+16.1.3) Confirm that you can create a Canvas Variant Annotation by right-clicking on it and click on Annotation.
+
+16.2) On any of the annotations, option-click (or right-click and select "Edit Information") on the created variant and confirm that data is identical to what it has been added from.
+
+16.2.1)  Make changes to the name and description fields.
+
+16.2.2)  Add two Allele Info.  Remove one Allele INFO.  
+
+16.2.3)  Add two Variant Info.  Remove one Variant INFO.  
+
+16.2.4)  Add two Human Phenotype Ontology terms and remove one.
+
+16.2.5)  Add an invalid Human Phenotype Ontology and ensure that the operation fails with a proper error.
+
+16.2.5)  Repeat for Comment, DBXRefs, and PubMed Ids.
+
+16.2.6)  Change name and confirm name is changed.
 
 
 
+16.3) Right-click on variant annotation and confirm that only that annotation appears in the Annotator Panel
 
+16.3.1) Observe that four tabs are shown in the details screen: Details, Alternate Alleles, Variant Info, and Allele Info.
+
+16.3.2) In the Details tab confirm that changes to Name and Description show up and match what is shown in the graphical editor.
+
+16.3.3) In the Variant Info tab confirm that the added info appears. 
+
+16.3.3.1) Confirm that you can add and delete Variant Info.
+
+16.3.4) In the Allele Info tab confirm that the added info appears. 
+
+16.3.4.1) Confirm that you can add and delete Allele Info.
+
+16.4) In Annotator Panel search switch between Variant and others and confirm that only variants shows up.
+
+16.5) Verify that you can zoom out and still see the variant info.
+
+16.6) On the Sequence Tab verify that the annotation shows up.
+
+16.6.1) Verify that you can click on the chromosome and export it as a valid VCF.
+
+16.6.2) Verify that the VCF contains all the variants and each variant has all the properties.
+
+16.7) Verify variant effect code.
+
+16.7.1) Click on a variant annotation deletion or insertion in a coding region and click on "View Variant Effect" and verify that an effect on the CDS is rendered (human BRCA1 works well for this).
+
+16.7.2) Click on generated sequence alteration and verify that the comment is "Effect of XXXX" where XXXX is the variant effecdt type.
+
+16.7.3) Click on "Remove Variant Effect" from the variant and verify that the sequence alteration and effect on the CDS are both removed. 
+
+16.7.4) Repeat adding variant effects but do this for multiple variants on the same gene.
+
+16.7.5) Click on the effected gene and click on "Remove variant effects" and confirm that all alterations are removed from within the effected area.
 

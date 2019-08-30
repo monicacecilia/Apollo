@@ -40,7 +40,6 @@ import org.gwtbootstrap3.extras.bootbox.client.Bootbox;
 import org.gwtbootstrap3.extras.bootbox.client.callback.ConfirmCallback;
 import org.gwtbootstrap3.extras.select.client.ui.MultipleSelect;
 import org.gwtbootstrap3.extras.select.client.ui.Option;
-import org.gwtbootstrap3.extras.select.client.ui.Select;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -59,7 +58,7 @@ public class GroupPanel extends Composite {
 
     DataGrid.Resources tablecss = GWT.create(TableResources.TableCss.class);
     @UiField(provided = true)
-    DataGrid<GroupInfo> dataGrid = new DataGrid<GroupInfo>(10, tablecss);
+    DataGrid<GroupInfo> dataGrid = new DataGrid<GroupInfo>(25, tablecss);
     @UiField
     Button deleteButton;
     @UiField
@@ -73,7 +72,7 @@ public class GroupPanel extends Composite {
     @UiField(provided = true)
     WebApolloSimplePager organismPager = new WebApolloSimplePager(WebApolloSimplePager.TextLocation.CENTER);
     @UiField(provided = true)
-    DataGrid<GroupOrganismPermissionInfo> organismPermissionsGrid = new DataGrid<>(4, tablecss);
+    DataGrid<GroupOrganismPermissionInfo> organismPermissionsGrid = new DataGrid<>(25, tablecss);
     @UiField
     TextBox createGroupField;
     @UiField
@@ -88,9 +87,18 @@ public class GroupPanel extends Composite {
     MultipleSelect availableUsers;
     @UiField
     Button updateUsers;
+    @UiField
+    MultipleSelect availableGroupAdmin;
+    @UiField
+    Button updateGroupAdmin;
+    @UiField
+    static TextBox nameSearchBox;
 
-    private ListDataProvider<GroupInfo> dataProvider = new ListDataProvider<>();
-    private List<GroupInfo> groupInfoList = dataProvider.getList();
+    static private ListDataProvider<GroupInfo> dataProvider = new ListDataProvider<>();
+    private static List<GroupInfo> groupInfoList = new ArrayList<>();
+    private static List<GroupInfo> filteredGroupInfoList = dataProvider.getList();
+
+
     private SingleSelectionModel<GroupInfo> selectionModel = new SingleSelectionModel<>();
     private GroupInfo selectedGroupInfo;
     private ColumnSortEvent.ListHandler<GroupInfo> groupSortHandler = new ColumnSortEvent.ListHandler<>(groupInfoList);
@@ -104,6 +112,7 @@ public class GroupPanel extends Composite {
     public GroupPanel() {
         initWidget(ourUiBinder.createAndBindUi(this));
         availableUsers.getElement().setAttribute("data-dropup-auto", Boolean.toString(false));
+        availableGroupAdmin.getElement().setAttribute("data-dropup-auto", Boolean.toString(false));
 
         TextColumn<GroupInfo> firstNameColumn = new TextColumn<GroupInfo>() {
             @Override
@@ -120,6 +129,7 @@ public class GroupPanel extends Composite {
             }
         };
         secondNameColumn.setSortable(true);
+
 
         dataGrid.addColumn(firstNameColumn, "Name");
         dataGrid.addColumn(secondNameColumn, "Users");
@@ -177,6 +187,7 @@ public class GroupPanel extends Composite {
                     case GROUPS_RELOADED:
                         selectedGroupInfo = null;
                         selectionModel.clear();
+                        filterList();
                         break;
 
 
@@ -188,8 +199,7 @@ public class GroupPanel extends Composite {
             @Override
             public boolean execute() {
                 if (MainPanel.getInstance().getCurrentUser() != null) {
-//        Window.alert("Has current user: " + (MainPanel.getInstance().getCurrentUser()==null ? "is null " : "exists"));
-                    if(MainPanel.getInstance().isCurrentUserAdmin()) {
+                    if (MainPanel.getInstance().isCurrentUserInstructorOrBetter()) {
                         GroupRestService.loadGroups(groupInfoList);
                         UserRestService.loadUsers(allUsersList);
                     }
@@ -218,6 +228,26 @@ public class GroupPanel extends Composite {
             }
         };
         GroupRestService.updateUserGroups(requestCallback, selectedGroupInfo, selectedValues);
+    }
+
+    @UiHandler("updateGroupAdmin")
+    public void UpdateGroupAdmin(ClickEvent clickEvent) {
+        List<Option> selectedValues = availableGroupAdmin.getSelectedItems();
+        RequestCallback requestCallback = new RequestCallback() {
+            @Override
+            public void onResponseReceived(Request request, Response response) {
+                selectedGroupInfo = null;
+                selectionModel.clear();
+                setSelectedGroup();
+                reload();
+            }
+
+            @Override
+            public void onError(Request request, Throwable exception) {
+                Bootbox.alert("Failed to update group admin: " + exception.fillInStackTrace().toString());
+            }
+        };
+        GroupRestService.updateGroupAdmin(requestCallback, selectedGroupInfo, selectedValues);
     }
 
     @UiHandler("deleteButton")
@@ -350,6 +380,7 @@ public class GroupPanel extends Composite {
             name.setText(selectedGroupInfo.getName());
             deleteButton.setVisible(true);
             availableUsers.clear();
+            availableGroupAdmin.clear();
 //            userData.removeAllRows();
 
             List<String> optionsList = new ArrayList<>();
@@ -359,17 +390,29 @@ public class GroupPanel extends Composite {
                 optionsList.add(option.getValue());
             }
 
+            List<String> adminOptionsList = new ArrayList<>();
+            if (selectedGroupInfo.getAdminInfoList() != null) {
+                for (UserInfo userInfo : selectedGroupInfo.getAdminInfoList()) {
+                    Option option = new Option();
+                    option.setText(userInfo.getName() + " (" + userInfo.getEmail() + ")");
+                    adminOptionsList.add(option.getValue());
+                }
+            }
+
             for (UserInfo userInfo : allUsersList) {
                 Option option = new Option();
+                Option option2 = new Option();
                 option.setText(userInfo.getName() + " (" + userInfo.getEmail() + ")");
+                option2.setText(userInfo.getName() + " (" + userInfo.getEmail() + ")");
                 availableUsers.add(option);
+                availableGroupAdmin.add(option2);
             }
 
 
-//            Option[] options = optionsList.toArray(new Option[optionsList.size()]);
             availableUsers.setValue(optionsList);
-//            availableUsers.setValues(options);
             availableUsers.refresh();
+            availableGroupAdmin.setValue(adminOptionsList);
+            availableGroupAdmin.refresh();
 
             // only show organisms that this user is an admin on . . . https://github.com/GMOD/Apollo/issues/540
             if (MainPanel.getInstance().isCurrentUserAdmin()) {
@@ -392,18 +435,35 @@ public class GroupPanel extends Composite {
         } else {
             name.setText("");
             deleteButton.setVisible(false);
-//            userData.removeAllRows();
             userDetailTab.setVisible(false);
         }
     }
+
 
     public void reload() {
         if (MainPanel.getInstance().getCurrentUser() != null) {
             GroupRestService.loadGroups(groupInfoList);
         }
-//        dataGrid.redraw();
     }
 
+    @UiHandler("nameSearchBox")
+    public void doSearch(KeyUpEvent keyUpEvent) {
+        filterList();
+    }
+
+    static void filterList() {
+        String text = nameSearchBox.getText();
+        filteredGroupInfoList.clear();
+        if (text.trim().length() == 0) {
+            filteredGroupInfoList.addAll(groupInfoList);
+            return;
+        }
+        for (GroupInfo groupInfo : groupInfoList) {
+            if (groupInfo.getName().toLowerCase().contains(text.toLowerCase())) {
+                filteredGroupInfoList.add(groupInfo);
+            }
+        }
+    }
 
     private void createOrganismPermissionsTable() {
         TextColumn<GroupOrganismPermissionInfo> organismNameColumn = new TextColumn<GroupOrganismPermissionInfo>() {

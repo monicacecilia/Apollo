@@ -1,7 +1,8 @@
 {
     "plugins" : [
       {
-         "location" : "./plugins/WebApollo",
+        "pluginsDir" : "./plugins/WebApollo",
+         "location" : "./plugins/WebApollo/js",
          "name" : "WebApollo"
       }
    ],
@@ -22,6 +23,10 @@
             },
             "arrowheadClass" : "annot-arrowhead",
             "alternateClasses" : {
+               "terminator" : {
+                  "renderClassName" : "terminator-render annot-apollo",
+                  "className" : "terminator"
+               },
                "transposable_element" : {
                   "renderClassName" : "blue-ibeam-render annot-apollo",
                   "className" : "blue-ibeam"
@@ -56,7 +61,23 @@
                "tRNA" : {
                   "renderClassName" : "gray-center-30pct annot-apollo",
                   "className" : "brightgreen-80pct"
-               }
+               },
+              "SNV": {
+                "renderClassName": "snv-variant",
+                "className" : "snv-variant-render"
+              },
+              "MNV": {
+                "renderClassName": "mnv-variant",
+                "className" : "mnv-variant-render"
+              },
+              "insertion": {
+                "renderClassName": "insertion-variant",
+                "className" : "insertion-variant-render"
+              },
+              "deletion": {
+                "renderClassName": "deletion-variant",
+                "className" : "deletion-variant-render"
+              }
             },
             "uniqueIdField" : "id",
             "centerSubFeature" : {

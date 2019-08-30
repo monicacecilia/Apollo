@@ -3,30 +3,93 @@ package org.bbop.apollo
 import grails.converters.JSON
 import grails.transaction.NotTransactional
 import grails.transaction.Transactional
+import org.bbop.apollo.gwt.shared.PermissionEnum
 import org.bbop.apollo.gwt.shared.track.TrackIndex
+import org.bbop.apollo.gwt.shared.FeatureStringEnum
 import org.bbop.apollo.sequence.SequenceDTO
 import org.codehaus.groovy.grails.web.json.JSONArray
+import org.codehaus.groovy.grails.web.json.JSONElement
 import org.codehaus.groovy.grails.web.json.JSONObject
+
+import javax.servlet.http.HttpServletResponse
+import java.util.zip.GZIPInputStream
 
 @Transactional
 class TrackService {
 
     def preferenceService
     def trackMapperService
+    def permissionService
+    def configWrapperService
 
-    public static String TRACK_NAME_SPLITTER = "::"
+    static final String TRACKLIST = "trackList.json"
+    static final String EXTENDED_TRACKLIST = "extendedTrackList.json"
 
-    JSONObject getTrackData(String trackName, String organism, String sequence) {
-        String jbrowseDirectory = preferenceService.getOrganismForToken(organism)?.directory
-        String trackPath = "${jbrowseDirectory}/tracks/${trackName}/${sequence}"
-        String trackDataFilePath = "${trackPath}/trackData.json"
+    JSONObject getTrackList(String jbrowseDirectory) {
+        log.debug "got data directory of . . . ? ${jbrowseDirectory}"
+        String absoluteFilePath = jbrowseDirectory + "/trackList.json"
+        File file = new File(absoluteFilePath);
 
-        File file = new File(trackDataFilePath)
         if (!file.exists()) {
-            println "file does not exist ${trackDataFilePath}"
-            return null
+            log.warn("Could not get for name and path: ${absoluteFilePath}");
+            return null;
         }
-        return JSON.parse(file.text) as JSONObject
+
+        // add datasets to the configuration
+        JSONObject jsonObject = JSON.parse(file.text) as JSONObject
+        return jsonObject
+    }
+
+    String getTrackDataFile(String jbrowseDirectory, String trackName, String sequence) {
+        JSONObject trackObject = getTrackList(jbrowseDirectory)
+        String urlTemplate = null
+        for (JSONObject track in trackObject.tracks) {
+            if (track.key == trackName) {
+                urlTemplate = track.urlTemplate
+            }
+        }
+
+        return "${urlTemplate.replace("{refseq}", sequence)}"
+    }
+
+    JSONElement retrieveFileObject(String jbrowseDirectory, String trackDataFilePath) {
+
+        if (trackDataFilePath.startsWith("http")) {
+            trackDataFilePath = trackDataFilePath.replace(" ", "%20")
+            if (trackDataFilePath.endsWith(".json")) {
+                return JSON.parse(new URL(trackDataFilePath).text)
+            } else if (trackDataFilePath.endsWith(".jsonz")) {
+                def inputStream = new URL(trackDataFilePath).openStream()
+                GZIPInputStream gzipInputStream = new GZIPInputStream(inputStream);
+                String outputString = gzipInputStream.readLines().join("\n")
+                return JSON.parse(outputString)
+            } else {
+                log.error("type not understood: " + trackDataFilePath)
+                return null
+            }
+        } else {
+            if (!trackDataFilePath.startsWith("/")) {
+                trackDataFilePath = jbrowseDirectory + "/" + trackDataFilePath
+            }
+            File file = new File(trackDataFilePath)
+            if (!file.exists()) {
+                log.error "File does not exist ${trackDataFilePath}"
+                return null
+            }
+            return JSON.parse(file.text)
+        }
+    }
+
+    JSONObject getAllTracks(String organism) throws FileNotFoundException {
+        String jbrowseDirectory = preferenceService.getOrganismForToken(organism)?.directory
+        JSONObject trackObject = getTrackList(jbrowseDirectory)
+        return trackObject
+    }
+
+    JSONObject getTrackData(String trackName, String organism, String sequence) throws FileNotFoundException {
+        String jbrowseDirectory = preferenceService.getOrganismForToken(organism)?.directory
+        String trackDataFilePath = getTrackDataFile(jbrowseDirectory, trackName, sequence)
+        return retrieveFileObject(jbrowseDirectory, trackDataFilePath) as JSONObject
     }
 
     @NotTransactional
@@ -35,18 +98,22 @@ class TrackService {
         return trackObject.getJSONObject("intervals").getJSONArray("classes")
     }
 
+    def storeTrackData(SequenceDTO sequenceDTO, JSONArray classesForTrack) {
+        trackMapperService.storeTrack(sequenceDTO, classesForTrack)
+    }
+
     JSONArray getNCList(String trackName, String organismString, String sequence, Long fmin, Long fmax) {
         assert fmin <= fmax
 
         // TODO: refactor into a common method
-        JSONArray clasesForTrack = getClassesForTrack(trackName, organismString, sequence)
+        JSONArray classesForTrack = getClassesForTrack(trackName, organismString, sequence)
         Organism organism = preferenceService.getOrganismForToken(organismString)
         SequenceDTO sequenceDTO = new SequenceDTO(
                 organismCommonName: organism.commonName
                 , trackName: trackName
                 , sequenceName: sequence
         )
-        trackMapperService.storeTrack(sequenceDTO, clasesForTrack)
+        this.storeTrackData(sequenceDTO, classesForTrack)
 
         // 1. get the trackData.json file
         JSONObject trackObject = getTrackData(trackName, organismString, sequence)
@@ -54,7 +121,7 @@ class TrackService {
 
         // 1 - extract the appropriate region for fmin / fmax
         JSONArray filteredList = filterList(nclistArray, fmin, fmax)
-        println "filtered list size ${filteredList.size()} from original ${nclistArray.size()}"
+        log.debug "filtered list size ${filteredList.size()} from original ${nclistArray.size()}"
 
         // if the first featured array has a chunk, then we need to evaluate the chunks instead
         if (filteredList) {
@@ -84,43 +151,52 @@ class TrackService {
      * @param chunk
      * @return
      */
-    JSONArray getChunkData(SequenceDTO sequenceDTO, int chunk) {
+    JSONArray getChunkData(SequenceDTO sequenceDTO, int chunk) throws FileNotFoundException {
         String jbrowseDirectory = preferenceService.getOrganismForToken(sequenceDTO.organismCommonName)?.directory
-        String trackPath = "${jbrowseDirectory}/tracks/${sequenceDTO.trackName}/${sequenceDTO.sequenceName}"
-        String trackDataFilePath = "${trackPath}/lf-${chunk}.json"
 
-        File file = new File(trackDataFilePath)
-        if (!file.exists()) {
-            println "file does not exist ${trackDataFilePath}"
-            return null
-        }
-        return JSON.parse(file.text) as JSONArray
+        String trackName = sequenceDTO.trackName
+        String sequence = sequenceDTO.sequenceName
+
+        String trackDataFilePath = getTrackDataFile(jbrowseDirectory, trackName, sequence)
+
+        trackDataFilePath = trackDataFilePath.replace("trackData.json", "lf-${chunk}.json")
+
+        return retrieveFileObject(jbrowseDirectory, trackDataFilePath) as JSONArray
     }
 
     @NotTransactional
-    JSONObject convertIndividualNCListToObject(JSONArray featureArray, SequenceDTO sequenceDTO) {
-        JSONObject jsonObject = new JSONObject()
+    def convertIndividualNCListToObject(JSONArray featureArray, SequenceDTO sequenceDTO) throws FileNotFoundException {
 
         if (featureArray.size() > 3) {
             if (featureArray[0] instanceof Integer) {
+                JSONObject jsonObject = new JSONObject()
                 TrackIndex trackIndex = trackMapperService.getIndices(sequenceDTO, featureArray.getInt(0))
 
                 jsonObject.fmin = featureArray[trackIndex.getStart()]
                 jsonObject.fmax = featureArray[trackIndex.getEnd()]
+                if (trackIndex.source) {
+                    jsonObject.source = featureArray[trackIndex.getSource()]
+                }
                 if (trackIndex.strand) {
                     jsonObject.strand = featureArray[trackIndex.getStrand()]
                 }
-//                if (trackIndex.source) {
-//                    jsonObject.source = featureArray[trackIndex.getSource()]
-//                }
+                if (trackIndex.phase) {
+                    jsonObject.phase = featureArray[trackIndex.phase]
+                }
                 if (trackIndex.type) {
                     jsonObject.type = featureArray[trackIndex.getType()]
                 }
-                if (trackIndex.id) {
-                    jsonObject.name = featureArray[trackIndex.id]
+                if (trackIndex.score) {
+                    jsonObject.score = featureArray[trackIndex.score]
                 }
-                if (trackIndex.phase) {
-                    jsonObject.phase = featureArray[trackIndex.phase]
+                if (trackIndex.name) {
+                    jsonObject.name = featureArray[trackIndex.name]
+                }
+                if (trackIndex.id) {
+                    jsonObject.id = featureArray[trackIndex.id]
+                }
+                if (trackIndex.seqId) {
+                    jsonObject.seqId = featureArray[trackIndex.seqId]
                 }
                 // sequence source
 //                jsonObject.seqId = featureArray[trackIndex.getSeqId()]
@@ -131,7 +207,7 @@ class TrackService {
                     def subArray = featureArray.get(subIndex)
                     if (subArray instanceof JSONArray) {
                         def subArray2 = convertAllNCListToObject(subArray, sequenceDTO)
-                        childArray.add(subArray2)
+                        childArray.addAll(subArray2)
                     }
                     if (subArray instanceof JSONObject && subArray.containsKey("Sublist")) {
                         def subArrays2 = subArray.getJSONArray("Sublist")
@@ -141,16 +217,14 @@ class TrackService {
                 if (childArray) {
                     jsonObject.children = childArray
                 }
+                return jsonObject
             }
         }
-
-
-
-        return jsonObject
+        return convertAllNCListToObject(featureArray, sequenceDTO)
     }
 
     @NotTransactional
-    JSONArray convertAllNCListToObject(JSONArray fullArray, SequenceDTO sequenceDTO) {
+    JSONArray convertAllNCListToObject(JSONArray fullArray, SequenceDTO sequenceDTO) throws FileNotFoundException {
         JSONArray returnArray = new JSONArray()
 
         for (def jsonArray in fullArray) {
@@ -177,11 +251,6 @@ class TrackService {
         }
 
         return jsonArray
-    }
-
-    // TODO
-    JSONObject getNCListAsBioLink(JSONArray jsonArray) {
-        null
     }
 
     // TODO: implement with track permissions
@@ -245,7 +314,7 @@ class TrackService {
         return returnMap
     }
 
-    public Map<String, Boolean> getTracksVisibleForOrganismAndGroup(Organism organism, UserGroup userGroup) {
+    Map<String, Boolean> getTracksVisibleForOrganismAndGroup(Organism organism, UserGroup userGroup) {
         Map<String, Boolean> trackVisibilityMap = new HashMap<>()
 
         List<GroupTrackPermission> groupPermissions = GroupTrackPermission.findAllByOrganismAndGroup(organism, userGroup)
@@ -271,7 +340,7 @@ class TrackService {
      * @param user
      * @param organism
      */
-    public void setTracksVisibleForOrganismAndUser(Map<String, Boolean> trackVisibilityMap, Organism organism, User user) {
+    void setTracksVisibleForOrganismAndUser(Map<String, Boolean> trackVisibilityMap, Organism organism, User user) {
         UserTrackPermission userTrackPermission = UserTrackPermission.findByOrganismAndUser(organism, user)
         String jsonString = convertHashMapToJsonString(trackVisibilityMap)
         if (!userTrackPermission) {
@@ -292,7 +361,7 @@ class TrackService {
      * @param group
      * @param organism
      */
-    public void setTracksVisibleForOrganismAndGroup(Map<String, Boolean> trackVisibilityMap, Organism organism, UserGroup group) {
+    void setTracksVisibleForOrganismAndGroup(Map<String, Boolean> trackVisibilityMap, Organism organism, UserGroup group) {
 
         GroupTrackPermission groupTrackPermission = GroupTrackPermission.findByOrganismAndGroup(organism, group)
         String jsonString = convertHashMapToJsonString(trackVisibilityMap)
@@ -310,7 +379,7 @@ class TrackService {
 
     }
 
-    public Map<String, Boolean> getTracksVisibleForOrganismAndUser(Organism organism, User user) {
+    Map<String, Boolean> getTracksVisibleForOrganismAndUser(Organism organism, User user) {
         Map<String, Boolean> trackVisibilityMap = new HashMap<>()
 
         List<UserTrackPermission> userPermissionList = UserTrackPermission.findAllByOrganismAndUser(organism, user)
@@ -371,18 +440,319 @@ class TrackService {
 
     @Transactional
     def cacheRequest(String responseString, String organismString, String trackName, String sequenceName, Long fmin, Long fmax, String type, Map paramMap) {
-        TrackCache trackCache = new TrackCache(
-                response: responseString
-                , organismName: organismString
-                , trackName: trackName
-                , sequenceName: sequenceName
-                , fmin: fmin
-                , fmax: fmax
-                , type: type
+
+        TrackCache trackCache = TrackCache.findByOrganismNameAndTrackNameAndSequenceNameAndFminAndFmaxAndType(
+                organismString,
+                trackName,
+                sequenceName,
+                fmin,
+                fmax,
+                type
         )
+
+        if(trackCache){
+            trackCache.response = responseString
+        }
+        else{
+            trackCache =  new TrackCache(
+                    response: responseString
+                    , organismName: organismString
+                    , trackName: trackName
+                    , sequenceName: sequenceName
+                    , fmin: fmin
+                    , fmax: fmax
+                    , type: type
+            )
+        }
         if (paramMap) {
             trackCache.paramMap = (paramMap as JSON).toString()
         }
         trackCache.save()
+    }
+
+    /**
+     *
+     * @param tracksArray
+     * @param trackName
+     * @return
+     */
+    @NotTransactional
+    JSONObject findTrackFromArray(JSONArray tracksArray, String trackName) {
+        for (int i = 0; i < tracksArray.size(); i++) {
+            JSONObject obj = tracksArray.getJSONObject(i)
+            if (obj.getString("label") == trackName) return obj
+        }
+
+        return null
+    }
+
+    /**
+     *
+     * @param tracksArray
+     * @param trackName
+     * @return
+     */
+    @NotTransactional
+    def removeTrackFromArray(JSONArray tracksArray, String trackName) {
+        JSONArray returnArray = new JSONArray()
+        for (int i = 0; i < tracksArray.size(); i++) {
+            JSONObject obj = tracksArray.getJSONObject(i)
+            if (obj.getString("label") != trackName) {
+                returnArray.add(obj)
+            }
+        }
+
+        return returnArray
+    }
+
+    /**
+     * Removes plugins included in annot.json (which is just WebApollo)
+     * @param pluginsArray
+     */
+    @NotTransactional
+    def removeIncludedPlugins(JSONArray pluginsArray) {
+        def iterator = pluginsArray.iterator()
+        while (iterator.hasNext()) {
+            def plugin = iterator.next()
+            if (plugin instanceof JSONObject) {
+                if (plugin.name == "WebApollo") {
+                    iterator.remove()
+                }
+            } else if (plugin instanceof String) {
+                if (plugin == "WebApollo") {
+                    iterator.remove()
+                }
+            }
+        }
+    }
+
+    @NotTransactional
+    JSONArray flattenArray(JSONArray jsonArray, String... types) {
+
+        List<String> typeList = new ArrayList<>()
+        types.each { typeList.add(it) }
+        JSONArray rootArray = new JSONArray()
+        // here we just clone it
+        for (def obj in jsonArray) {
+            if (obj instanceof JSONObject) {
+                if (typeList.contains(obj.type)) {
+                    for (JSONObject child in getGeneChildren(obj, typeList)) {
+                        rootArray.add(child)
+                    }
+//                rootArray.add(obj)
+                }
+            }
+//            else if (obj instanceof JSONArray) {
+//                rootArray.addAll(flattenArray(obj,types))
+////                for (JSONObject child in obj) {
+////                    rootArray.add(child)
+////                }
+//            }
+        }
+
+        return rootArray
+
+    }
+
+    @NotTransactional
+    JSONArray getGeneChildren(JSONObject jsonObject, List<String> typeList) {
+        JSONArray geneChildren = new JSONArray()
+        boolean hasGeneChild = false
+        Iterator childIterator = jsonObject.children.iterator()
+        while (childIterator.hasNext()) {
+            def child = childIterator.next()
+            if (child instanceof JSONObject) {
+                if (typeList.contains(child.type)) {
+                    hasGeneChild = true
+                    geneChildren.addAll(getGeneChildren(child, typeList))
+                }
+            }
+            // if a subarray instead
+            else if (child instanceof JSONArray) {
+                for (grandChild in child) {
+                    if (typeList.contains(grandChild.type)) {
+                        hasGeneChild = true
+                        geneChildren.addAll(getGeneChildren(grandChild, typeList))
+                    }
+                }
+                geneChildren.add(jsonObject)
+
+                Iterator iter = child.iterator()
+                while (iter.hasNext()) {
+                    def object = iter.next()
+                    if (typeList.contains(object.type)) {
+                        iter.remove()
+                    }
+                }
+            }
+        }
+        if (!hasGeneChild) {
+            geneChildren.add(jsonObject)
+        } else {
+            Iterator iter = jsonObject.children.iterator()
+            while (iter.hasNext()) {
+                def object = iter.next()
+                if (typeList.contains(object.type)) {
+                    iter.remove()
+                }
+            }
+
+        }
+        return geneChildren
+    }
+
+    def checkPermission(def request, def response, String organismString) {
+        Organism organism = preferenceService.getOrganismForToken(organismString)
+        if (organism && (organism.publicMode || permissionService.checkPermissions(PermissionEnum.READ))) {
+            return true
+        } else {
+            // not accessible to the public
+            response.status = HttpServletResponse.SC_FORBIDDEN
+            return false
+        }
+    }
+
+    @Transactional(readOnly = true)
+    File getExtendedTrackList(Organism organism){
+        File returnFile = new File(getExtendedDataDirectory(organism).absolutePath + File.separator + EXTENDED_TRACKLIST)
+        if(!returnFile.exists()){
+            log.warn("File ${returnFile.absolutePath} does not exist")
+        }
+        if(!returnFile.canRead()){
+            log.warn("File ${returnFile.absolutePath} can not be read")
+        }
+        if(!returnFile.canWrite()){
+            log.warn("File ${returnFile.absolutePath} can not be written to")
+        }
+        return returnFile
+    }
+
+    @Transactional(readOnly = true)
+    File getExtendedDataDirectory(Organism organism){
+        File returnFile = new File(commonDataDirectory + File.separator + organism.id + "-" + organism.commonName.replaceAll(" ","_"))
+        if(!returnFile.exists()){
+            log.warn("File ${returnFile.absolutePath} does not exist")
+        }
+        if(!returnFile.canRead()){
+            log.warn("File ${returnFile.absolutePath} can not be read")
+        }
+        if(!returnFile.canWrite()){
+            log.warn("File ${returnFile.absolutePath} can not be written to")
+        }
+        return returnFile
+    }
+
+
+    @Transactional(readOnly = true)
+    String getCommonDataDirectory() {
+        // TODO: cache?
+        ApplicationPreference commonDataPreference = ApplicationPreference.findByName(FeatureStringEnum.COMMON_DATA_DIRECTORY.value)
+        return commonDataPreference?.value
+    }
+
+    /**
+     *
+     * 1. Determine the preferred version
+     *    1a. The database one has the source of user, config, or ??  If it is user, then the database is always the default.
+     *    1b.
+     * 2. See if that version is valid (exists and can write)
+     *    2a. Use the next backup (config)
+     *    2b. Use the next backup (find a home writeable directory)
+     *    2c. Ask the user for help
+     * 3. Notify the admin user the first time of where that directory is.
+     *
+     * The reason for using the database is to remove the configuration detail if startup is easier.
+     *
+     * If both exist and they match and they are both writeable, then return
+     *
+     *
+     * @return
+     */
+    def checkCommonDataDirectory() {
+        ApplicationPreference commonDataPreference = ApplicationPreference.findByName(FeatureStringEnum.COMMON_DATA_DIRECTORY.value)
+        String directory
+
+        try {
+            if (commonDataPreference) {
+                directory = commonDataPreference.value
+                log.debug "Preference exists in database [${directory}]."
+                File testDirectory = new File(directory)
+                if (!testDirectory.exists()) {
+                    log.warn "Directory does not exist so trying to make"
+                    assert testDirectory.mkdirs()
+                }
+                if (testDirectory.exists() && testDirectory.canWrite()) {
+                    log.debug "Directory ${directory} exists and is writable so returning"
+                    return null
+                }
+            }
+
+            // if all of the tests fail, then do the next thing
+            log.warn "Unable to write to the database directory, so checking the config file"
+            directory = configWrapperService.commonDataDirectory
+            File testDirectory = new File(directory)
+            if (!testDirectory.exists()) {
+                assert testDirectory.mkdirs()
+            }
+            if (testDirectory.exists() && testDirectory.canWrite()) {
+                ApplicationPreference applicationPreference = new ApplicationPreference(
+                        name: "common_data_directory",
+                        value: directory
+
+                ).save(failOnError: true, flush: true)
+                log.info("Saving new preference for common data directory ${directory}")
+                return null
+            }
+        } catch (Throwable e) {
+            log.error "Unable to write to directory ${directory}. ${e}"
+            return "Unable to write to directory ${directory}."
+        }
+    }
+
+
+    def updateCommonDataDirectory(String newDirectory) {
+        File testDirectory = new File(newDirectory)
+        if (!testDirectory.exists()) {
+            assert testDirectory.mkdirs()
+        }
+        if (!testDirectory.exists() || !testDirectory.canWrite()) {
+            return "Unable to write to directory ${newDirectory}"
+        }
+        ApplicationPreference commonDataPreference = ApplicationPreference.findOrSaveByName("common_data_directory")
+        commonDataPreference.value = newDirectory
+        commonDataPreference.save()
+        return null
+    }
+
+
+    @NotTransactional
+    def generateJSONForGff3(File inputFile, String trackPath, String jbrowseBinariesPath,String topType=null){
+        File fileToExecute = new File(jbrowseBinariesPath + "/flatfile-to-json.pl")
+        log.debug "file to execute ${fileToExecute}"
+        log.debug "file exists ${fileToExecute.exists()}"
+        log.debug "file can execute ${fileToExecute.canExecute()}"
+        File trackPathFile = new File(trackPath)
+        log.debug "track path ${trackPath} -> exissts ${trackPathFile.exists()} and can write ${trackPathFile.canWrite()}"
+        if(!fileToExecute.canExecute()){
+            fileToExecute.setExecutable(true,true)
+            log.debug "file can execute ${fileToExecute.canExecute()}"
+        }
+//        bin/flatfile-to-json.pl --[gff|gbk|bed] <flat file> --tracklabel <track name>
+        log.debug "input fie ${inputFile}"
+        String outputName = inputFile.getName().substring(0,inputFile.getName().lastIndexOf("."))
+
+        def arguments
+        if(topType){
+//            arguments = [fileToExecute.absolutePath,"--gff",inputFile.absolutePath,"--compress","--type",topType,"--trackLabel",outputName,"--out",trackPath]
+            arguments = [fileToExecute.absolutePath,"--gff",inputFile.absolutePath,"--compress","--type",topType,"--trackLabel",outputName,"--out",trackPath]
+        }
+        else{
+            arguments = [fileToExecute.absolutePath,"--gff",inputFile.absolutePath,"--compress","--trackLabel",outputName,"--out",trackPath]
+        }
+        String executionString = arguments.join(" ")
+        log.info "generating NCList with ${executionString}"
+
+        def proc = executionString.execute()
+        log.debug "error: ${proc.err.text}"
     }
 }

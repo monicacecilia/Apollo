@@ -22,6 +22,7 @@ SequenceOntologyUtils.neverHasCDS = {
     alignment: true, 
     repeat: true,
     repeat_region: true,
+    terminator: true,
     transposable_element: true
 };
             
@@ -40,6 +41,7 @@ SequenceOntologyUtils.neverHasExons = {
     alignment: true, 
     repeat: true,
     repeat_region: true,
+    terminator: true,
     transposable_element: true
 };
 
@@ -372,6 +374,12 @@ SequenceOntologyUtils.exonTerms = {
         five_prime_coding_exon_noncoding_region: true,
         three_prime_coding_exon_noncoding_region: true 
     */
+};
+
+SequenceOntologyUtils.shineDalgarnoTerms = {
+    shine_dalgarno: true,
+    Shine_Dalgarno_sequence: true,
+    shine_dalgarno_sequence: true,
 };
 
 SequenceOntologyUtils.startCodonTerms = {

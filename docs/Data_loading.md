@@ -1,6 +1,19 @@
 # Data generation pipeline
 
-The data generation pipeline is based on the typical jbrowse commands such as prepare-refseqs.pl and
+## Automated Configuration and upload
+
+Still slightly experimental in 2.4.0, admin users may upload FASTA files to create new genomes and upload most track types.
+
+![](images/AddGenomeSmall.png)
+
+Additionally admin users may also add most tracks in a similar fashion:
+
+![](images/AddTrackSmall.png)
+
+
+## Manual Configuration
+
+The manual data generation pipeline is based on the typical jbrowse commands such as prepare-refseqs.pl and
 flatfile-to-json.pl, and these scripts are automatically copied to a local bin/ directory when you run the setup scripts
 (e.g. `apollo run-local` or `apollo deploy` or `install_jbrowse.sh`).
 
@@ -16,6 +29,14 @@ script to output to the data directory.
 ``` 
 bin/prepare-refseqs.pl --fasta pyu_data/scf1117875582023.fa --out /opt/apollo/data
 ```
+
+If you want to use an indexed FASTA genome then you can run prepare-refseqs.pl as follows:
+
+```
+bin/prepare-refseqs.pl --indexed_fasta pyu_data/scf1117875582023.fa --out /opt/apollo/data
+```
+
+The script will copy the genome FASTA and its FAI index into the output folder.
 
 Note: the output directory is used later when we load the organism into the browser with the "Create organism" form
 

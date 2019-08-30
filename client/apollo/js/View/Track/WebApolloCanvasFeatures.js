@@ -53,7 +53,7 @@ return declare( CanvasFeaturesTrack,
                   "label" : "gene",
                   "action":  function() {
                      var atrack=thisB.webapollo.getAnnotTrack();
-                     atrack.createAnnotations({x1:{feature:this.feature}});
+                     atrack.createAnnotations({x1:{feature:this.feature}},true);
                   }
                 },
                 {
@@ -106,14 +106,21 @@ return declare( CanvasFeaturesTrack,
                    }
                 },
                 {
-                  "label" : "repeat_region",
+                  "label" : "Repeat region",
                   "action" : function() {
                      var atrack=thisB.webapollo.getAnnotTrack();
                      atrack.createGenericOneLevelAnnotations([this.feature], "repeat_region", true);
                    }
                 },
                 {
-                  "label" : "transposable element",
+                  "label" : "Terminator",
+                  "action" : function() {
+                      var atrack=thisB.webapollo.getAnnotTrack();
+                      atrack.createGenericOneLevelAnnotations([this.feature], "terminator", true);
+                  }
+                },
+                {
+                  "label" : "Transposable element",
                   "action" : function() {
                      var atrack=thisB.webapollo.getAnnotTrack();
                      atrack.createGenericOneLevelAnnotations([this.feature], "transposable_element", true);

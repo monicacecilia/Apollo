@@ -2,8 +2,9 @@ package org.bbop.apollo
 
 
 import groovy.transform.EqualsAndHashCode
+
 @EqualsAndHashCode
-class Organism {
+class Organism implements JsonMetadata {
 
     static auditable = true
 
@@ -16,7 +17,12 @@ class Organism {
         blatdb nullable: true
         metadata nullable: true
         commonName nullable: false
-        nonDefaultTranslationTable nullable: true,blank: false
+        genomeFasta nullable: true
+        obsolete nullable: true
+        genomeFastaIndex nullable: true
+        nonDefaultTranslationTable nullable: true, blank: false
+        dataAddedViaWebServices nullable: true
+        metadata(display: false, blank: true,nullable: true)
     }
 
     String abbreviation;
@@ -26,11 +32,14 @@ class Organism {
     String comment;
     Boolean valid;
     boolean publicMode;
+    boolean obsolete
     String blatdb;
     String directory
+    String genomeFasta
+    String genomeFastaIndex
     String nonDefaultTranslationTable
-
     String metadata
+    Boolean dataAddedViaWebServices
 
     static hasMany = [
             organismProperties: OrganismProperty
@@ -40,7 +49,7 @@ class Organism {
             , groupPermissions: GroupOrganismPermission
     ]
 
-    public String getTrackList() {
+    String getTrackList() {
         if (!directory) {
             return null
         } else {
@@ -48,7 +57,7 @@ class Organism {
         }
     }
 
-    public String getRefseqFile() {
+    String getRefseqFile() {
         if (!directory) {
             return null
         } else {
@@ -56,8 +65,17 @@ class Organism {
         }
     }
 
+    String getGenomeFastaFileName() {
+        return genomeFasta ? directory + File.separator + genomeFasta : null
+    }
+
+    String getGenomeFastaIndexFileName() {
+        return genomeFastaIndex ? directory + File.separator + genomeFastaIndex : null
+    }
+
     static mapping = {
         publicMode defaultValue: true
+        obsolete defaultValue: false
     }
 
 }

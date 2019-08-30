@@ -1,13 +1,4 @@
-require({
-           packages: [
-               { name: 'jqueryui', location: '../plugins/WebApollo/jslib/jqueryui' },
-               { name: 'jquery', location: '../plugins/WebApollo/jslib/jquery', main: 'jquery' }
-           ]
-       },
-       [],
-       function() {
-
-define.amd.jQuery = true;
+const $ = require('jquery')
 
 define([
            'dojo/_base/declare',
@@ -38,8 +29,6 @@ define([
            'JBrowse/View/FileDialog/TrackList/GFF3Driver',
            'JBrowse/CodonTable',
            'dojo/io-query',
-           'jquery/jquery',
-           'lazyload/lazyload'
        ],
     function( declare,
             lang,
@@ -68,9 +57,8 @@ define([
             HelpMixin,
             GFF3Driver,
             CodonTable,
-            ioQuery,
-            $,
-            LazyLoad ) {
+            ioQuery
+            ) {
 
 return declare( [JBPlugin, HelpMixin],
 {
@@ -81,10 +69,6 @@ return declare( [JBPlugin, HelpMixin],
         this.searchMenuInitialized = false;
         var browser = this.browser;  // this.browser set in Plugin superclass constructor
         [
-          'plugins/WebApollo/jslib/bbop/bbop.js',
-          'plugins/WebApollo/jslib/bbop/golr.js',
-          'plugins/WebApollo/jslib/bbop/jquery.js',
-          'plugins/WebApollo/jslib/bbop/search_box.js',
           'plugins/WebApollo/jslib/websocket/spring-websocket.js'
         ].forEach(function(src) {
           var script = document.createElement('script');
@@ -158,7 +142,7 @@ return declare( [JBPlugin, HelpMixin],
         // that the open-file dialog and other things will have them
         // as options
         browser.registerTrackType({
-            type:                 'WebApollo/View/Track/DraggableHTMLFeatures',
+            type:                 'WebApollo/View/Track/DraggableNeatHTMLFeatures',
             defaultForStoreTypes: [ 'JBrowse/Store/SeqFeature/NCList',
                                     'JBrowse/Store/SeqFeature/GFF3',
                                     'WebApollo/Store/SeqFeature/ApolloGFF3'
@@ -373,25 +357,37 @@ return declare( [JBPlugin, HelpMixin],
     initSearchMenu: function()  {
         if (! this.searchMenuInitialized) {
             var webapollo = this;
-            this.browser.addGlobalMenuItem( 'tools',
-                                            new dijitMenuItem(
-                                                {
-                                                    id: 'menubar_apollo_seqsearch',
-                                                    label: "Search sequence",
-                                                    onClick: function() {
-                                                        webapollo.getAnnotTrack().searchSequence();
-                                                    }
-                                                }) );
-            if(!dijitRegistry.byId("dropdownmenu_tools")){
-                this.browser.renderGlobalMenu( 'tools', {text: 'Tools'}, this.browser.menuBar );
-            }
+            this.browser.afterMilestone('initView', function() {
+                var button = new dijitMenuItem(
+                                {
+                                    id: 'menubar_apollo_seqsearch',
+                                    label: "Search sequence",
+                                    onClick: function() {
+                                        webapollo.getAnnotTrack().searchSequence();
+                                    }
+                                }) ;
+                this.browser.addGlobalMenuItem( 'tools', button);
+                var renderedMenu = dijitRegistry.byId("dropdownmenu_tools");
+                if(!renderedMenu){
+                    this.browser.renderGlobalMenu( 'tools', {text: 'Tools'}, this.browser.menuBar );
+                }
+                else {
+                    renderedMenu.addChild(button);
+                }
+            }, this );
 
         }
 
         // move Tool menu in front of Help menu
-        var toolsMenu = dijit.byId('dropdownbutton_tools');
-        var helpMenu = dijit.byId('dropdownbutton_help');
-        domConstruct.place(toolsMenu.domNode,helpMenu.domNode,'before');
+        var intervalFunction  = function(){
+            var toolsMenu = dijit.byId('dropdownbutton_tools');
+            var helpMenu = dijit.byId('dropdownbutton_help');
+            if(toolsMenu && helpMenu){
+                domConstruct.place(toolsMenu.domNode,helpMenu.domNode,'before');
+                clearInterval(intervalID); // Will clear the timer.
+            }
+        };
+        var intervalID = setInterval(intervalFunction, 100); // Will alert every second.
         this.searchMenuInitialized = true;
     },
 
@@ -440,7 +436,10 @@ return declare( [JBPlugin, HelpMixin],
                                             {
                                                     label: 'Logout',
                                                     onClick: function()  {
+                                                        var confirm_logout = confirm('Logout?')
+                                                        if(confirm_logout){
                                                             webapollo.getAnnotTrack().logout();
+                                                        }
                                                     }
                                             })
             );
@@ -746,8 +745,6 @@ return declare( [JBPlugin, HelpMixin],
         this.updateLabels();
     }
 
-
-});
 
 });
 

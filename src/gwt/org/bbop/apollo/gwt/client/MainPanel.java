@@ -22,19 +22,20 @@ import org.bbop.apollo.gwt.client.event.AnnotationInfoChangeEvent;
 import org.bbop.apollo.gwt.client.event.AnnotationInfoChangeEventHandler;
 import org.bbop.apollo.gwt.client.event.OrganismChangeEvent;
 import org.bbop.apollo.gwt.client.event.UserChangeEvent;
-import org.bbop.apollo.gwt.client.rest.OrganismRestService;
-import org.bbop.apollo.gwt.client.rest.RestService;
-import org.bbop.apollo.gwt.client.rest.SequenceRestService;
-import org.bbop.apollo.gwt.client.rest.UserRestService;
+import org.bbop.apollo.gwt.client.oracles.ReferenceSequenceOracle;
+import org.bbop.apollo.gwt.client.rest.*;
 import org.bbop.apollo.gwt.shared.FeatureStringEnum;
+import org.bbop.apollo.gwt.shared.GlobalPermissionEnum;
 import org.bbop.apollo.gwt.shared.PermissionEnum;
 import org.gwtbootstrap3.client.ui.*;
 import org.gwtbootstrap3.client.ui.Anchor;
 import org.gwtbootstrap3.client.ui.Button;
 import org.gwtbootstrap3.client.ui.SuggestBox;
+import org.gwtbootstrap3.client.ui.TextBox;
 import org.gwtbootstrap3.client.ui.constants.AlertType;
 import org.gwtbootstrap3.client.ui.constants.IconType;
 import org.gwtbootstrap3.extras.bootbox.client.Bootbox;
+import org.gwtbootstrap3.extras.bootbox.client.callback.ConfirmCallback;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,6 +59,7 @@ public class MainPanel extends Composite {
     private static UserInfo currentUser;
     private static OrganismInfo currentOrganism;
     private static SequenceInfo currentSequence;
+    private String commonDataDirectory;
     private static Integer currentStartBp; // start base pair
     private static Integer currentEndBp; // end base pair
     private static Map<String, List<String>> currentQueryParams; // list of organisms for user
@@ -136,6 +138,16 @@ public class MainPanel extends Composite {
     HTML editUserHeader;
     @UiField
     Button trackListToggle;
+    @UiField
+    Modal editAdminModal;
+    @UiField
+    Button updateAdminButton;
+    @UiField
+    Button cancelAdminButton;
+    @UiField
+    TextBox adminTextBox;
+    @UiField
+    Alert updateAdminAlertText;
 
 
     private LoginDialog loginDialog = new LoginDialog();
@@ -388,7 +400,13 @@ public class MainPanel extends Composite {
         String globalRole = currentUser.getRole();
         PermissionEnum highestPermission;
         UserOrganismPermissionInfo userOrganismPermissionInfo = currentUser.getOrganismPermissionMap().get(currentOrganism.getName());
-        if (globalRole.equals("admin")) {
+        Map<String,UserOrganismPermissionInfo> infoMap = currentUser.getOrganismPermissionMap();
+        for(Map.Entry<String,UserOrganismPermissionInfo> entry : infoMap.entrySet()){
+            String entryKey = "";
+            entryKey += entry.getKey() + " " + entry.getValue().getId() + " " + entry.getValue().getHighestPermission().getDisplay();
+            GWT.log(entryKey);
+        }
+        if (globalRole.equals("admin") || globalRole.equals("instructor")) {
             highestPermission = PermissionEnum.ADMINISTRATE;
         } else {
             highestPermission = PermissionEnum.NONE;
@@ -428,6 +446,12 @@ public class MainPanel extends Composite {
         Annotator.eventBus.fireEvent(userChangeEvent);
     }
 
+    protected void updateCommonDir(String current,String suggested){
+        updateAdminAlertText.setText(current);
+        adminTextBox.setText(suggested);
+        editAdminModal.show();
+    }
+
     private void loginUser() {
         String url = Annotator.getRootUrl() + "user/checkLogin";
         url += "?clientToken=" + Annotator.getClientToken();
@@ -438,12 +462,17 @@ public class MainPanel extends Composite {
             public void onResponseReceived(Request request, Response response) {
                 JSONObject returnValue = JSONParser.parseStrict(response.getText()).isObject();
                 if (returnValue.containsKey(FeatureStringEnum.USER_ID.getValue())) {
+                    if(returnValue.containsKey("badCommonPath")){
+                        updateCommonDir(returnValue.get("badCommonPath").isString().stringValue(),"apollo_data");
+                    }
+                    else
                     if (returnValue.containsKey(FeatureStringEnum.ERROR.getValue())) {
                         String errorText = returnValue.get(FeatureStringEnum.ERROR.getValue()).isString().stringValue();
                         alertText.setText(errorText);
                         detailTabs.setVisible(false);
                         notificationModal.show();
-                    } else {
+                    }
+                    else {
                         detailTabs.setVisible(true);
                         getAppState();
                         logoutButton.setVisible(true);
@@ -636,7 +665,21 @@ public class MainPanel extends Composite {
 
     public void setAppState(AppStateInfo appStateInfo) {
         trackPanel.clear();
-        organismInfoList = appStateInfo.getOrganismList();
+
+        Boolean showObsoletes = organismPanel.showObsoleteOrganisms.getValue();
+        if(!showObsoletes){
+           organismInfoList = new ArrayList<>();
+           for(OrganismInfo organismInfo : appStateInfo.getOrganismList()){
+               if(!organismInfo.getObsolete()){
+                   organismInfoList.add(organismInfo);
+               }
+           }
+        }
+        else{
+            organismInfoList = appStateInfo.getOrganismList();
+        }
+
+        commonDataDirectory = appStateInfo.getCommonDataDirectory();
         currentSequence = appStateInfo.getCurrentSequence();
         currentOrganism = appStateInfo.getCurrentOrganism();
         currentStartBp = appStateInfo.getCurrentStartBp();
@@ -804,7 +847,7 @@ public class MainPanel extends Composite {
                 organismPanel.reload();
                 break;
             case 4:
-                userPanel.reload();
+                userPanel.reload(true);
                 break;
             case 5:
                 userGroupPanel.reload();
@@ -913,7 +956,14 @@ public class MainPanel extends Composite {
 
     @UiHandler(value = {"logoutAndBrowsePublicGenomes"})
     public void logoutAndBrowse(ClickEvent clickEvent) {
-        UserRestService.logout("../jbrowse");
+        Bootbox.confirm("Logout?", new ConfirmCallback() {
+            @Override
+            public void callback(boolean result) {
+                if(result){
+                    UserRestService.logout("../jbrowse");
+                }
+            }
+        });
     }
 
 
@@ -1038,10 +1088,52 @@ public class MainPanel extends Composite {
         return currentOrganism.toJSON().toString();
     }
 
+    /**
+     * Features array handed in
+     *
+     * @param parentName
+     */
+    public static Boolean viewInAnnotationPanel(String parentName) {
+        try {
+            annotatorPanel.sequenceList.setText("");
+            annotatorPanel.nameSearchBox.setText(parentName);
+            annotatorPanel.reload();
+            detailTabs.selectTab(TabPanelIndex.ANNOTATIONS.getIndex());
+            return true ;
+        } catch (Exception e) {
+            Bootbox.alert("Problem viewing annotation");
+            GWT.log("Problem viewing annotation "+parentName+ " "+ e.fillInStackTrace().toString());
+            return false ;
+        }
+    }
+
     @UiHandler("trackListToggle")
     public void trackListToggleButtonHandler(ClickEvent event) {
         useNativeTracklist = !trackListToggle.isActive();
         trackPanel.updateTrackToggle(useNativeTracklist);
+    }
+
+    @UiHandler("updateAdminButton")
+    public void updateAdminButton(ClickEvent event) {
+
+        RequestCallback requestCallback = new RequestCallback() {
+            @Override
+            public void onResponseReceived(Request request, Response response) {
+                Bootbox.alert("Successfully updated, reloading");
+                Window.Location.reload();
+            }
+
+            @Override
+            public void onError(Request request, Throwable exception) {
+                Bootbox.alert("There was a problem: "+exception.getMessage());
+            }
+        };
+        AnnotationRestService.updateCommonPath(requestCallback,adminTextBox.getText());
+    }
+
+    @UiHandler("cancelAdminButton")
+    public void cancelAdminButton(ClickEvent event) {
+        editAdminModal.hide();
     }
 
 
@@ -1058,11 +1150,7 @@ public class MainPanel extends Composite {
         $wnd.getCurrentOrganism = $entry(@org.bbop.apollo.gwt.client.MainPanel::getCurrentOrganismAsJson());
         $wnd.getCurrentUser = $entry(@org.bbop.apollo.gwt.client.MainPanel::getCurrentUserAsJson());
         $wnd.getCurrentSequence = $entry(@org.bbop.apollo.gwt.client.MainPanel::getCurrentSequenceAsJson());
-        $wnd.getEmbeddedVersion = $entry(
-            function apolloEmbeddedVersion() {
-                return 'ApolloGwt-2.0';
-            }
-        );
+        $wnd.viewInAnnotationPanel = $entry(@org.bbop.apollo.gwt.client.MainPanel::viewInAnnotationPanel(Ljava/lang/String;));
     }-*/;
 
     private enum TabPanelIndex {
@@ -1076,14 +1164,37 @@ public class MainPanel extends Composite {
 
         private int index;
 
+        public int getIndex() {
+            return index;
+        }
+
         TabPanelIndex(int index) {
             this.index = index;
         }
 
     }
 
+    public boolean isCurrentUserOrganismAdmin() {
+        if(currentUser==null) return false ;
+        if(currentUser.getRole().equals(GlobalPermissionEnum.ADMIN.getLookupKey())) return true ;
+
+        UserOrganismPermissionInfo permissionInfo = currentUser.getOrganismPermissionMap().get(currentOrganism.getName());
+        if(permissionInfo!=null){
+            return permissionInfo.getHighestPermission().getRank()>=PermissionEnum.ADMINISTRATE.getRank();
+        }
+
+        return false ;
+    }
+
+    public boolean isCurrentUserInstructorOrBetter() {
+        if(currentUser!=null){
+            return currentUser.getRole().equals(GlobalPermissionEnum.ADMIN.getLookupKey()) || currentUser.getRole().equals(GlobalPermissionEnum.INSTRUCTOR.getLookupKey());
+        }
+        return false ;
+    }
+
     public boolean isCurrentUserAdmin() {
-        return (currentUser != null && currentUser.getRole().equals("admin"));
+        return (currentUser != null && currentUser.getRole().equals(GlobalPermissionEnum.ADMIN.getLookupKey()));
     }
 
     public UserInfo getCurrentUser() {
@@ -1114,12 +1225,21 @@ public class MainPanel extends Composite {
         return sequencePanel;
     }
 
+    public static UserPanel getUserPanel() {
+        return userPanel;
+    }
+
     public static TrackPanel getTrackPanel() {
         return trackPanel;
     }
 
     public static SequenceInfo getCurrentSequence() {
         return currentSequence;
+    }
+
+
+    public String getCommonDataDirectory() {
+        return commonDataDirectory;
     }
 
     SequenceInfo setCurrentSequenceAndEnds(SequenceInfo newSequence) {

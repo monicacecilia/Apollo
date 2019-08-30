@@ -28,6 +28,11 @@ public class OrganismInfoConverter {
         } else {
             organismInfo.setNumFeatures(0);
         }
+        if (object.get("variantEffectCount") != null) {
+            organismInfo.setVariantEffectCount((int) object.get("variantEffectCount").isNumber().doubleValue());
+        } else {
+            organismInfo.setVariantEffectCount(0);
+        }
         organismInfo.setDirectory(object.get("directory").isString().stringValue());
         if (object.get("valid") != null) {
             organismInfo.setValid(object.get("valid").isBoolean().booleanValue());
@@ -46,6 +51,9 @@ public class OrganismInfoConverter {
         }
         if (object.get("publicMode") != null) {
             organismInfo.setPublicMode(object.get("publicMode").isBoolean().booleanValue());
+        }
+        if (object.get("obsolete") != null) {
+            organismInfo.setObsolete(object.get("obsolete").isBoolean().booleanValue());
         }
         if (object.get("editable") != null) {
             organismInfo.setEditable(object.get("editable").isBoolean().booleanValue());
@@ -97,6 +105,7 @@ public class OrganismInfoConverter {
 
         GWT.log("convertOrganismInfoToJSONObject "+organismInfo.getPublicMode());
         object.put("publicMode", JSONBoolean.getInstance(organismInfo.getPublicMode()));
+        object.put("obsolete", JSONBoolean.getInstance(organismInfo.getObsolete()));
 
         return object;
     }

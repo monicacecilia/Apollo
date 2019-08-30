@@ -25,7 +25,7 @@ public class Gff3HandlerService {
 
     static final def unusedStandardAttributes = ["Alias", "Target", "Gap", "Derives_from", "Ontology_term", "Is_circular"];
     @Timed
-    public void writeFeaturesToText(String path, Collection<? extends Feature> features, String source, Boolean exportSequence = false, Collection<Sequence> sequences = null) throws IOException {
+    void writeFeaturesToText(String path, Collection<? extends Feature> features, String source, Boolean exportSequence = false, Collection<Sequence> sequences = null) throws IOException {
         WriteObject writeObject = new WriteObject()
 
         writeObject.mode = Mode.WRITE
@@ -177,13 +177,13 @@ public class Gff3HandlerService {
     
     public void writeFastaForSequenceAlterations(WriteObject writeObject, Collection<? extends Feature> features) {
         for (Feature feature : features) {
-            if (feature instanceof SequenceAlteration) {
+            if (feature instanceof SequenceAlterationArtifact) {
                 writeFastaForSequenceAlteration(writeObject, feature)
             }
         }
     }
     
-    public void writeFastaForSequenceAlteration(WriteObject writeObject, SequenceAlteration sequenceAlteration) {
+    public void writeFastaForSequenceAlteration(WriteObject writeObject, SequenceAlterationArtifact sequenceAlteration) {
         int lineLength = 60;
         String residues = null
         residues = sequenceAlteration.getAlterationResidue()
@@ -379,7 +379,16 @@ public class Gff3HandlerService {
                 }
             }
             if (writeObject.attributesToExport.contains(FeatureStringEnum.OWNER.value) && feature.getOwner()) {
-                attributes.put(FeatureStringEnum.OWNER.value.toLowerCase(), encodeString(feature.getOwner().username));
+                String ownersString = feature.owners.collect{ owner ->
+                    encodeString(owner.username)
+                }.join(",")
+                // Note: how to do this using history directly, but only the top-level visible object gets annotated (e.g., the mRNA)
+                // also, this is a separate query to the history table for each GFF3, so very slow
+//                def owners = FeatureEvent.findAllByUniqueName(feature.uniqueName).editor.unique()
+//                String ownersString = owners.collect{ owner ->
+//                    encodeString(owner.username)
+//                }.join(",")
+                attributes.put(FeatureStringEnum.OWNER.value.toLowerCase(), ownersString);
             }
             if (writeObject.attributesToExport.contains(FeatureStringEnum.DATE_CREATION.value)) {
                 Calendar calendar = Calendar.getInstance();
@@ -393,7 +402,7 @@ public class Gff3HandlerService {
             }
 
 
-            if(feature.class.name in [Insertion.class.name,Substitution.class.name]) {
+            if(feature.class.name in [InsertionArtifact.class.name, SubstitutionArtifact.class.name]) {
                 attributes.put(FeatureStringEnum.RESIDUES.value, feature.alterationResidue)
             }
         }
@@ -405,7 +414,7 @@ public class Gff3HandlerService {
     }
 
     static private String encodeString(String str) {
-        return str ? str.replaceAll(",", "%2C").replaceAll("=", "%3D").replaceAll(";", "%3B").replaceAll("\t", "%09") : ""
+        return str ? str.replaceAll(",", "%2C").replaceAll("\n","%0A").replaceAll("=", "%3D").replaceAll(";", "%3B").replaceAll("\t", "%09") : ""
     }
 
 

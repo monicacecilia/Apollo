@@ -1,6 +1,6 @@
 import org.bbop.apollo.FeatureType
 import org.bbop.apollo.Role
-import org.bbop.apollo.UserService
+import org.bbop.apollo.gwt.shared.GlobalPermissionEnum
 import org.bbop.apollo.sequence.SequenceTranslationHandler
 
 
@@ -14,6 +14,8 @@ class BootStrap {
     def domainMarshallerService
     def proxyService
     def userService
+    def roleService
+    def trackService
     def phoneHomeService
 
 
@@ -24,6 +26,10 @@ class BootStrap {
         log.info "Url: ${dataSource.url}"
         log.info "Driver: ${dataSource.driverClassName}"
         log.info "Dialect: ${dataSource.dialect}"
+
+        System.getenv().each {
+            log.info it.key + "->" + it.value
+        }
 
         domainMarshallerService.registerObjects()
         proxyService.initProxies()
@@ -36,20 +42,14 @@ class BootStrap {
             featureTypeService.stubDefaultFeatureTypes()
         }
 
-        if(Role.count==0){
-            def userRole = new Role(name: UserService.USER).save()
-            userRole.addToPermissions("*:*")
-            userRole.removeFromPermissions("cannedComments:*")
-            userRole.removeFromPermissions("availableStatus:*")
-            userRole.removeFromPermissions("featureType:*")
-            def adminRole = new Role(name: UserService.ADMIN).save()
-            adminRole.addToPermissions("*:*")
-        }
+        roleService.initRoles()
 
         def admin = grailsApplication.config?.apollo?.admin
         if(admin){
             userService.registerAdmin(admin.username,admin.password,admin.firstName,admin.lastName)
         }
+
+        trackService.checkCommonDataDirectory()
 
         phoneHomeService.pingServerAsync(org.bbop.apollo.PhoneHomeEnum.START.value)
 

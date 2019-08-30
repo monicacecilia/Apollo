@@ -34,6 +34,39 @@
 	border-color: lightgray;
 }
 
+.alt_alleles {
+    min-width: 100%;
+    min-height: 7em;
+    border: solid;
+    border-width: 1px;
+    border-color: lightgray;
+}
+
+
+.allele_info {
+	min-width: 100%;
+	min-height: 7em;
+	border: solid;
+	border-width: 1px;
+	border-color: lightgray;
+}
+
+.variant_info {
+    min-width: 100%;
+    min-height: 7em;
+    border: solid;
+    border-width: 1px;
+    border-color: lightgray;
+}
+
+.phenotype_ontology_ids {
+    min-width: 100%;
+    min-height: 7em;
+    border: solid;
+    border-width: 1px;
+    border-color: lightgray;
+}
+
 .attributes {
 	min-width: 100%;
 	min-height: 7em;
@@ -105,7 +138,8 @@
 
 .comments .dojoxGridHeader,
 .pubmed_ids .dojoxGridHeader,
-.go_ids .dojoxGridHeader {
+.go_ids .dojoxGridHeader,
+.phenotype_ontology_ids .dojoxGridHeader {
 	display: none;
 }
 
@@ -118,16 +152,17 @@
 	border-style: solid;
 	border-color: lightgray;
 	padding: 0.5em;
-	overflow-y: auto;
-	max-height: 2em;
+	/*overflow-y: auto;*/
+	/*max-height: 2em;*/
 }
 
 .annotation_info_editor_radio {
 /*	padding-right: 1em; */
-	display: inline-block;
+	display: block;
 }
 
 .annotation_info_editor_radio_label {
+	display: inline;
 }
 
 .ui-autocomplete {

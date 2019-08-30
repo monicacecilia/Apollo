@@ -17,10 +17,8 @@ import org.gwtbootstrap3.client.ui.html.Div;
 import org.gwtbootstrap3.client.ui.html.Paragraph;
 import org.gwtbootstrap3.client.ui.html.Span;
 
-import com.google.gwt.json.client.JSONArray;
 import com.google.gwt.json.client.JSONObject;
 import com.google.gwt.json.client.JSONParser;
-import com.google.gwt.json.client.JSONString;
 
 import java.util.List;
 
@@ -33,6 +31,8 @@ public class ExportPanel extends Modal {
     private Boolean exportAll = false;
     private OrganismInfo currentOrganismInfo;
     private Boolean exportAllSequencesToChado = false;
+    private Boolean exportToThisOrganism = false;
+    private Boolean exportJBrowseSequence = false;
     HTML sequenceInfoLabel = new HTML();
     HTML typeLabel = new HTML();
     HTML sequenceTypeLabel = new HTML();
@@ -40,12 +40,17 @@ public class ExportPanel extends Modal {
     Button exportButton = new Button("Export");
     RadioButton gff3Button = new RadioButton("GFF3", "GFF3", true);
     RadioButton gff3WithFastaButton = new RadioButton("GFF3 with FASTA", "GFF3 with FASTA", true);
+    RadioButton vcfButton = new RadioButton("VCF", "VCF", true);
     RadioButton genomicRadioButton = new RadioButton("Genomic", "Genomic", true);
     RadioButton cdnaRadioButton = new RadioButton("cDNA", "cDNA", true);
     RadioButton cdsRadioButton = new RadioButton("CDS", "CDS", true);
     RadioButton peptideRadioButton = new RadioButton("Peptide", "Peptide", true);
     RadioButton chadoExportButton1 = new RadioButton("chadoExportOption1", "Export all sequences (that have annotations) to Chado", true);
     RadioButton chadoExportButton2 = new RadioButton("chadoExportOption2", "Export all sequences to Chado", true);
+    RadioButton gpadExportButton = new RadioButton("GPAD", "GPAD", true);
+//    RadioButton jbrowseExportButton1 = new RadioButton("jbrowseExportButton1", "JSON Track", true);
+//    RadioButton jbrowseExportButton2 = new RadioButton("jbrowseExportButton2", "Annotations and Evidence", true);
+//    RadioButton jbrowseExportButton3 = new RadioButton("jbrowseExportButton3", "Add Track as Evidence", true);
 
     ModalBody modalBody = new ModalBody();
     ModalHeader modalHeader = new ModalHeader();
@@ -81,10 +86,24 @@ public class ExportPanel extends Modal {
             buttonGroup.add(gff3WithFastaButton);
         }
         else
+        if (type.equals(FeatureStringEnum.TYPE_VCF.getValue())) {
+            buttonGroup.add(vcfButton);
+        }
+        else
         if (type.equals(FeatureStringEnum.TYPE_CHADO.getValue())) {
             buttonGroup.add(chadoExportButton1);
             buttonGroup.add(chadoExportButton2);
         }
+        else
+        if (type.equals(FeatureStringEnum.TYPE_GPAD.getValue())) {
+            buttonGroup.add(gpadExportButton);
+        }
+//        else
+//        if (type.equals(FeatureStringEnum.TYPE_JBROWSE.getValue())) {
+////            buttonGroup.add(jbrowseExportButton1);
+////            buttonGroup.add(jbrowseExportButton2);
+////            buttonGroup.add(jbrowseExportButton3);
+//        }
         modalBody.add(buttonGroup);
 
         modalBody.add(sequenceTypeLabel);
@@ -138,6 +157,8 @@ public class ExportPanel extends Modal {
         gff3WithFastaButton.addClickHandler(exportClickHandler);
         gff3Button.addClickHandler(exportClickHandler);
 
+        vcfButton.addClickHandler(exportClickHandler);
+
         chadoExportButton1.addClickHandler(new ClickHandler() {
             @Override
             public void onClick(ClickEvent clickEvent) {
@@ -153,6 +174,32 @@ public class ExportPanel extends Modal {
                 exportButton.setEnabled(true);
             }
         });
+        gpadExportButton.addClickHandler(exportClickHandler);
+
+//        jbrowseExportButton1.addClickHandler(new ClickHandler() {
+//            @Override
+//            public void onClick(ClickEvent clickEvent) {
+//                exportJBrowseSequence = true ;
+//                exportButton.setEnabled(true);
+//            }
+//        });
+//
+////        jbrowseExportButton2.addClickHandler(new ClickHandler() {
+////            @Override
+////            public void onClick(ClickEvent clickEvent) {
+////                exportJBrowseSequence = true ;
+////                exportButton.setEnabled(true);
+////            }
+////        });
+//
+//        jbrowseExportButton3.addClickHandler(new ClickHandler() {
+//            @Override
+//            public void onClick(ClickEvent clickEvent) {
+////                exportJBrowseSequence = true ;
+//                exportToThisOrganism = true ;
+//                exportButton.setEnabled(true);
+//            }
+//        });
     }
 
 
@@ -294,5 +341,13 @@ public class ExportPanel extends Modal {
 
     public void setExportAllSequencesToChado(Boolean value) {
         this.exportAllSequencesToChado = value;
+    }
+
+    public Boolean getExportToThisOrganism() {
+        return exportToThisOrganism;
+    }
+
+    public Boolean getExportJBrowseSequence() {
+        return exportJBrowseSequence;
     }
 }

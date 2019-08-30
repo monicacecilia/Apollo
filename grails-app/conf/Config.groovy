@@ -31,6 +31,11 @@ grails.mime.types = [ // the first one is the default format
                       atom         : 'application/atom+xml',
                       css          : 'text/css',
                       csv          : 'text/csv',
+                      pdf          : 'application/pdf',
+                      rtf          : 'application/rtf',
+                      excel        : 'application/vnd.ms-excel',
+                      ods          : 'application/vnd.oasis.opendocument.spreadsheet',
+                      all          : '*/*',
                       form         : 'application/x-www-form-urlencoded',
                       html         : ['text/html', 'application/xhtml+xml'],
                       js           : 'text/javascript',
@@ -199,6 +204,7 @@ apollo {
     overlapper_class = "org.bbop.apollo.sequence.OrfOverlapper"
     track_name_comparator = "/config/track_name_comparator.js"
     use_cds_for_new_transcripts = false
+    transcript_overlapper = "CDS"
     feature_has_dbxrefs = true
     feature_has_attributes = true
     feature_has_pubmed_ids = true
@@ -209,6 +215,11 @@ apollo {
     user_pure_memory_store = true
     is_partial_translation_allowed = false // unused so far
     export_subfeature_attrs = false
+    store_orig_id = true // sets the orig_id to the original evidence id when first created
+
+    // used for uploading
+//    common_data_directory = "/opt/apollo"
+    common_data_directory = "apollo_data"
 
     // settings for Chado export
     // set chado_export_fasta_for_sequence if you want the reference sequence FASTA to be exported into the database
@@ -226,25 +237,17 @@ apollo {
     proxies = [
             [
                     referenceUrl : 'http://golr.geneontology.org/select',
-                    targetUrl    : 'http://golr.geneontology.org/select',
+                    targetUrl    : 'http://golr.geneontology.org/solr/select',
                     active       : true,
                     fallbackOrder: 0,
-                    replace      : false
-            ]
-            ,
-            [
-                    referenceUrl : 'http://golr.geneontology.org/select',
-                    targetUrl    : 'http://golr.berkeleybop.org/select',
-                    active       : false,
-                    fallbackOrder: 1,
-                    replace      : false
+                    replace      : true
             ]
             ,
             [
                     referenceUrl : 'http://golr.geneontology.org/select',
                     targetUrl    : 'http://golr.berkeleybop.org/solr/select',
                     active       : false,
-                    fallbackOrder: 2,
+                    fallbackOrder: 1,
                     replace      : false
             ]
     ]
@@ -276,6 +279,16 @@ apollo {
                                                      key       : "GFF3 with FASTA",
                                                      options   : "output=file&format=gzip&type=GFF3&exportGff3Fasta=true"
                                              ]]
+                     ],
+                     [
+                             permission   : 1,
+                             key          : "VCF",
+                             data_adapters: [[
+                                                     permission: 1,
+                                                     key       : "VCF",
+                                                     options   : "output=file&format=gzip&type=VCF"
+                                             ]
+                             ]
                      ],
                      [
                              permission   : 1,
@@ -323,19 +336,21 @@ apollo {
 
     // customize admin tab on annotator panel with these links
     administrativePanel = [
-            ['label': "Canned Comments", 'link': "/cannedComment/"]
-            , ['label': "Canned Key", 'link': "/cannedKey/"]
-            , ['label': "Canned Values", 'link': "/cannedValue/"]
-            , ['label': "Feature Types", 'link': "/featureType/"]
-            , ['label': "Statuses", 'link': "/availableStatus/"]
-            , ['label': "Proxies", 'link': "/proxy/"]
+            ['label': "Canned Comments", 'link': "/cannedComment/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Canned Key", 'link': "/cannedKey/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Canned Values", 'link': "/cannedValue/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Suggested Name", 'link': "/suggestedName/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Feature Types", 'link': "/featureType/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Statuses", 'link': "/availableStatus/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Proxies", 'link': "/proxy/",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
             , ['label': "Report::Organisms", 'link': "/organism/report/", 'type': "report"]
             , ['label': "Report::Sequences", 'link': "/sequence/report/", 'type': "report"]
-            , ['label': "Report::Annotator", 'link': "/annotator/report/", 'type': "report"]
+            , ['label': "Report::Annotator", 'link': "/annotator/report/", 'type':'report','globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Report::Instructor", 'link': "/annotator/instructorReport/", 'type': "report"]
             , ['label': "Report::Changes", 'link': "/featureEvent/report/", 'type': "report"]
-            , ['label': "System Info", 'link': "/home/systemInfo/", 'type': "report"]
-            , ['label': "Performance Metrics", 'link': "/home/metrics/", 'type': "report"]
-            , ['label': "WebServices", 'link': "/WebServices/", 'type': "report"]
+            , ['label': "System Info", 'link': "/home/systemInfo/", 'type': "report",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "Performance Metrics", 'link': "/home/metrics/", 'type': "report",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
+            , ['label': "WebServices", 'link': "/WebServices/", 'type': "report",'globalRank':org.bbop.apollo.gwt.shared.GlobalPermissionEnum.ADMIN]
     ]
 
     // over-ride in apollo-config.groovy to add extra tabs
@@ -366,6 +381,8 @@ apollo {
         bucketPrefix = "apollo-usage-"
         fileName = "ping.json"
     }
+
+    native_track_selector_default_on = false
 }
 
 
@@ -385,11 +402,11 @@ auditLog {
 jbrowse {
     git {
         url = "https://github.com/gmod/jbrowse"
-//        tag = "99d8e6e1e7dfe290b839d41c18f41cf92d9afc7c"
-		tag = "1.12.3-release"
-//        branch = "master"
-        alwaysPull = false
-        alwaysRecheck = false
+        branch = "1.16.6-release"
+//		branch = "dev"
+//        tag = "15dfd2309f2d508d8bed782d0f68b38dd9927bb4"
+        alwaysPull = true
+        alwaysRecheck = true
     }
 //    url {
 //        // always use dev for apollo
@@ -398,19 +415,17 @@ jbrowse {
 //        fileName = "JBrowse-1.12.0-dev"
 //    }
 //
-//	// Warning: We are still testing the performance of the NeatFeatures plugins in combination with Apollo.
-//	// We advise caution if enabling these plugins with Apollo until this process is finalized.
     plugins {
         WebApollo {
             included = true
         }
-//        NeatHTMLFeatures{
-//            included = true
-//            linearGradient = 0
-//        }
-//        NeatCanvasFeatures{
-//            included = true
-//        }
+        NeatHTMLFeatures{
+            included = true
+            linearGradient = 0
+        }
+        NeatCanvasFeatures{
+            included = true
+        }
         RegexSequenceSearch {
             included = true
         }

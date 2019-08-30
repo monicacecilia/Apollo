@@ -2,7 +2,6 @@ package org.bbop.apollo.gwt.client;
 
 import com.google.gwt.cell.client.NumberCell;
 import com.google.gwt.core.client.GWT;
-import com.google.gwt.core.client.Scheduler;
 import com.google.gwt.event.dom.client.BlurEvent;
 import com.google.gwt.event.dom.client.ClickEvent;
 import com.google.gwt.event.dom.client.KeyCodes;
@@ -18,7 +17,6 @@ import com.google.gwt.user.cellview.client.Column;
 import com.google.gwt.user.cellview.client.ColumnSortEvent;
 import com.google.gwt.user.cellview.client.DataGrid;
 import com.google.gwt.user.cellview.client.TextColumn;
-import com.google.gwt.user.client.Window;
 import com.google.gwt.user.client.ui.Composite;
 import com.google.gwt.user.client.ui.HTML;
 import com.google.gwt.user.client.ui.Widget;
@@ -30,7 +28,6 @@ import org.bbop.apollo.gwt.client.event.AnnotationInfoChangeEvent;
 import org.bbop.apollo.gwt.client.resources.TableResources;
 import org.bbop.apollo.gwt.client.rest.AnnotationRestService;
 import org.bbop.apollo.gwt.client.rest.RestService;
-import org.bbop.apollo.gwt.shared.FeatureStringEnum;
 import org.gwtbootstrap3.client.ui.Button;
 import org.gwtbootstrap3.client.ui.Container;
 import org.gwtbootstrap3.client.ui.TextBox;
@@ -82,11 +79,6 @@ public class ExonDetailPanel extends Composite {
     private static List<AnnotationInfo> annotationInfoList = dataProvider.getList();
     private SingleSelectionModel<AnnotationInfo> selectionModel = new SingleSelectionModel<>();
 
-    private TextColumn<AnnotationInfo> typeColumn;
-    private Column<AnnotationInfo, Number> startColumn;
-    private Column<AnnotationInfo, Number> stopColumn;
-    private Column<AnnotationInfo, Number> lengthColumn;
-
     private Boolean editable = false;
 
     public ExonDetailPanel() {
@@ -111,7 +103,7 @@ public class ExonDetailPanel extends Composite {
     }
 
     private void initializeTable() {
-        typeColumn = new TextColumn<AnnotationInfo>() {
+        TextColumn<AnnotationInfo> typeColumn = new TextColumn<AnnotationInfo>() {
             @Override
             public String getValue(AnnotationInfo annotationInfo) {
                 String annotationTypeString = annotationInfo.getType();
@@ -125,7 +117,7 @@ public class ExonDetailPanel extends Composite {
         };
         typeColumn.setSortable(true);
 
-        startColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
+        Column<AnnotationInfo, Number> startColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
             @Override
             public Integer getValue(AnnotationInfo annotationInfo) {
                 return getDisplayMin(annotationInfo.getMin());
@@ -133,7 +125,7 @@ public class ExonDetailPanel extends Composite {
         };
         startColumn.setSortable(true);
 
-        stopColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
+        Column<AnnotationInfo, Number> stopColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
             @Override
             public Integer getValue(AnnotationInfo annotationInfo) {
                 return annotationInfo.getMax();
@@ -141,7 +133,7 @@ public class ExonDetailPanel extends Composite {
         };
         stopColumn.setSortable(true);
 
-        lengthColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
+        Column<AnnotationInfo, Number> lengthColumn = new Column<AnnotationInfo, Number>(new NumberCell()) {
             @Override
             public Integer getValue(AnnotationInfo annotationInfo) {
                 return annotationInfo.getLength();
@@ -202,8 +194,8 @@ public class ExonDetailPanel extends Composite {
         //displayAnnotationInfo(annotationInfo);
         getAnnotationInfoWithTopLevelFeature(annotationInfo);
         annotationInfoList.clear();
-        GWT.log("sublist: " + annotationInfo.getAnnotationInfoSet().size());
-        for (AnnotationInfo annotationInfo1 : annotationInfo.getAnnotationInfoSet()) {
+        GWT.log("sublist: " + annotationInfo.getChildAnnotations().size());
+        for (AnnotationInfo annotationInfo1 : annotationInfo.getChildAnnotations()) {
             GWT.log("adding: " + annotationInfo1.getName());
             annotationInfoList.add(annotationInfo1);
         }

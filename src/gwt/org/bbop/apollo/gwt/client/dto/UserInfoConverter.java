@@ -4,6 +4,7 @@ import com.google.gwt.json.client.JSONArray;
 import com.google.gwt.json.client.JSONObject;
 import com.google.gwt.json.client.JSONParser;
 import com.google.gwt.user.client.Window;
+import org.bbop.apollo.gwt.shared.FeatureStringEnum;
 import org.gwtbootstrap3.extras.bootbox.client.Bootbox;
 
 import java.util.ArrayList;
@@ -16,13 +17,29 @@ import java.util.TreeMap;
  */
 public class UserInfoConverter {
 
+    public static List<UserInfo> convertFromJsonArray(JSONArray jsonArray) {
+
+        List<UserInfo> userInfoList = new ArrayList<>();
+        for(int i = 0 ; i < jsonArray.size() ; i++){
+            userInfoList.add(convertToUserInfoFromJSON(jsonArray.get(i).isObject()));
+        }
+
+        return userInfoList;
+    }
+
     public static UserInfo convertToUserInfoFromJSON(JSONObject object){
         UserInfo userInfo = new UserInfo();
 
-        userInfo.setUserId((long) object.get("userId").isNumber().doubleValue());
+        userInfo.setUserId((long) object.get(FeatureStringEnum.USER_ID.getValue()).isNumber().doubleValue());
         userInfo.setFirstName(object.get("firstName").isString().stringValue());
         userInfo.setLastName(object.get("lastName").isString().stringValue());
         userInfo.setEmail(object.get("username").isString().stringValue());
+        if(object.containsKey("inactive")){
+            userInfo.setInactive(object.get("inactive").isBoolean().booleanValue());
+        }
+        else{
+            userInfo.setInactive(false);
+        }
         if (object.get("role") != null && object.get("role").isString() != null) {
             userInfo.setRole(object.get("role").isString().stringValue().toLowerCase());
         } else {
@@ -60,8 +77,8 @@ public class UserInfoConverter {
                 if (organismPermissionJsonObject.get("id") != null) {
                     userOrganismPermissionInfo.setId((long) organismPermissionJsonObject.get("id").isNumber().doubleValue());
                 }
-                if (organismPermissionJsonObject.get("userId") != null) {
-                    userOrganismPermissionInfo.setUserId((long) organismPermissionJsonObject.get("userId").isNumber().doubleValue());
+                if (organismPermissionJsonObject.get(FeatureStringEnum.USER_ID.getValue()) != null) {
+                    userOrganismPermissionInfo.setUserId((long) organismPermissionJsonObject.get(FeatureStringEnum.USER_ID.getValue()).isNumber().doubleValue());
                 }
 //                if (organismPermissionJsonObject.get("groupId") != null) {
 //                    userOrganismPermissionInfo.setUserId((long) organismPermissionJsonObject.get("userId").isNumber().doubleValue());
@@ -98,4 +115,5 @@ public class UserInfoConverter {
         }
         return userInfo ;
     }
+
 }
